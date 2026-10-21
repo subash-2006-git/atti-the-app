@@ -4,6 +4,15 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.1.0 - Unreleased
+
+### Added
+- Photo sharing, Instagram DM style: a photo button in the message box opens
+  Android's photo picker; photos are shrunk before sending (long side up to
+  1600 px), appear at once with a progress ring, and open full-screen with
+  pinch and double-tap zoom. Like messages, photos are never saved — they are
+  deleted when the chat ends.
+
 ## 1.0.0 - 2026-10-21
 
 First version: offline one-to-one text chat between nearby phones.
