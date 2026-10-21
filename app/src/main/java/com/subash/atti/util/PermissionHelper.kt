@@ -33,21 +33,27 @@ object PermissionHelper {
         }
         if (sdk >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            // Up to Android 12 (API 31/32), Bluetooth and Wi-Fi scanning count as location access.
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
+        // Nearby Connections refuses to discover without location access on every version,
+        // including Android 13+ (it reports MISSING_PERMISSION_ACCESS_COARSE_LOCATION).
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
     }
 
-    /** Location services only matter on versions where scanning needs the location permission. */
-    fun needsLocationServices(sdk: Int = Build.VERSION.SDK_INT): Boolean =
-        sdk < Build.VERSION_CODES.TIRAMISU
-
-    fun missingPermissions(context: Context): List<String> =
-        requiredPermissions().filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+    /**
+     * The required permissions not yet granted. From Android 12 the user may allow only
+     * approximate location; Nearby is satisfied with that, so precise isn't required.
+     */
+    fun missingPermissions(context: Context, sdk: Int = Build.VERSION.SDK_INT): List<String> =
+        filterMissing(requiredPermissions(sdk), sdk) {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
+
+    internal fun filterMissing(permissions: List<String>, sdk: Int, isGranted: (String) -> Boolean): List<String> {
+        val missing = permissions.filterNot(isGranted)
+        val approximateIsEnough = sdk >= Build.VERSION_CODES.S && Manifest.permission.ACCESS_COARSE_LOCATION !in missing
+        return if (approximateIsEnough) missing - Manifest.permission.ACCESS_FINE_LOCATION else missing
+    }
 
     /** True when the user picked "Don't ask again" (or the system stopped showing the dialog). */
     fun isPermanentlyDenied(activity: Activity, denied: List<String>): Boolean =
@@ -60,10 +66,9 @@ object PermissionHelper {
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
         if (wifi?.isWifiEnabled != true) add(Radio.WIFI)
 
-        if (needsLocationServices()) {
-            val location = context.getSystemService(LocationManager::class.java)
-            if (location == null || !LocationManagerCompat.isLocationEnabled(location)) add(Radio.LOCATION)
-        }
+        // Bluetooth scanning returns nothing while Location is switched off.
+        val location = context.getSystemService(LocationManager::class.java)
+        if (location == null || !LocationManagerCompat.isLocationEnabled(location)) add(Radio.LOCATION)
     }
 
     fun hasPlayServices(context: Context): Boolean =

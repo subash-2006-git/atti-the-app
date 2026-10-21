@@ -55,8 +55,9 @@ fun PermissionGate(content: @Composable () -> Unit) {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        val denied = result.filterValues { !it }.keys.toList()
+    ) { _ ->
+        // Judge only what's still missing: "approximate location" leaves precise denied, and that's fine.
+        val denied = PermissionHelper.missingPermissions(context)
         permanentlyDenied = denied.isNotEmpty() && PermissionHelper.isPermanentlyDenied(activity, denied)
         checkTick++
     }
@@ -89,13 +90,14 @@ fun PermissionGate(content: @Composable () -> Unit) {
 
         missing.isNotEmpty() && permanentlyDenied -> GateMessage(
             title = "Allow nearby access in Settings",
-            body = "ATTI can't ask again from here. Open Settings, go to Permissions and allow Nearby devices${if (PermissionHelper.needsLocationServices()) " and Location" else ""}.",
+            body = "ATTI can't ask again from here. Open Settings, go to Permissions and allow Nearby devices and Location.",
             primary = "Open Settings" to { context.startActivity(PermissionHelper.appSettingsIntent(context)) },
         )
 
         missing.isNotEmpty() -> GateMessage(
             title = "ATTI needs nearby access",
-            body = "To find people around you without internet, ATTI uses Bluetooth and Wi-Fi to talk directly to their phone. Nothing leaves the two phones.",
+            body = "To find people around you without internet, ATTI uses Bluetooth and Wi-Fi to talk directly to their phone. " +
+                "Android treats finding nearby phones as location access, so it asks for Location too — ATTI never reads or shares where you are.",
             primary = (if (askedOnce) "Try again" else "Allow access") to ::requestPermissions,
         )
 
