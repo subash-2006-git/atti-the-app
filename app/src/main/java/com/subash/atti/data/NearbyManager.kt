@@ -1,6 +1,8 @@
 package com.subash.atti.data
 
 import android.content.Context
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.nearby.Nearby
@@ -17,11 +19,13 @@ import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import com.subash.atti.BuildConfig
+import com.subash.atti.data.model.ImageAttachment
 import com.subash.atti.data.model.Message
 import com.subash.atti.data.model.NearbyEvent
 import com.subash.atti.data.model.Peer
 import com.subash.atti.data.model.PeerStatus
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -32,16 +36,19 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Talks to Google Nearby Connections: announces this phone, finds other ATTI
- * phones, and (in later steps) connects, sends and receives.
+ * phones, connects, and sends and receives text and photos.
  *
  * Every phone advertises and discovers at the same time. All callbacks arrive
  * on the main thread, so state here is only touched from the main thread.
  */
 class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
+    private val appContext = context.applicationContext
     private val client = Nearby.getConnectionsClient(context)
     private var myName = ""
     private var started = false
@@ -53,6 +60,20 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     /** Requests we accepted only to answer "busy" before hanging up. */
     private val busyEndpoints = mutableSetOf<String>()
+
+    /** Photos live here only for the current chat; the folder is deleted when it ends. */
+    private val photosRoot = File(appContext.cacheDir, "chat_photos")
+    private var chatPhotosDir = File(photosRoot, "none")
+
+    /** Nearby payload id → the photo message it belongs to, sent or received. */
+    private val photoMessages = mutableMapOf<Long, Long>()
+
+    /** Nearby payload id → expected size in bytes, for progress and completeness. */
+    private val photoSizes = mutableMapOf<Long, Long>()
+
+    /** Photo streams that arrived before the packet announcing them. */
+    private val earlyStreams = mutableMapOf<Long, Payload>()
+    private val photoJobs = mutableListOf<Job>()
 
     private val _peers = MutableStateFlow<List<Peer>>(emptyList())
     val peers: StateFlow<List<Peer>> = _peers.asStateFlow()
@@ -74,6 +95,11 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     private val _events = MutableSharedFlow<NearbyEvent>(extraBufferCapacity = 8)
     val events: SharedFlow<NearbyEvent> = _events.asSharedFlow()
+
+    init {
+        // Leftovers from a session that was killed mid-chat.
+        scope.launch(Dispatchers.IO) { photosRoot.deleteRecursively() }
+    }
 
     /** Starts advertising [name] and looking for others. Safe to call repeatedly. */
     fun start(name: String) {
@@ -113,6 +139,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         requestTimeoutJob?.cancel()
         fakeReplyJob?.cancel()
         busyEndpoints.clear()
+        clearPhotos()
         _peers.value = emptyList()
         _incoming.value = null
         _status.value = PeerStatus.Idle
@@ -257,6 +284,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
     private fun openChat(peer: Peer) {
         requestTimeoutJob?.cancel()
         _messages.value = emptyList()
+        chatPhotosDir = File(photosRoot, System.nanoTime().toString())
         _status.value = PeerStatus.Connected(peer)
     }
 
@@ -275,7 +303,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         send(endpointId, Packet.Text(clean, message.timestamp))
             .addOnFailureListener { e ->
                 Log.w(TAG, "sendPayload failed", e)
-                _messages.update { list -> list.map { if (it.id == message.id) it.copy(failed = true) else it } }
+                updateMessage(message.id) { it.copy(failed = true) }
             }
     }
 
@@ -303,6 +331,10 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
     /** The link dropped mid-chat: keep the messages on screen but stop sending. */
     private fun endChat(peer: Peer, reason: PeerStatus.Disconnected.Reason) {
         fakeReplyJob?.cancel()
+        // Photos still on their way won't arrive now.
+        _messages.update { list ->
+            list.map { if (it.image?.progress != null) it.copy(failed = true) else it }
+        }
         _status.value = PeerStatus.Disconnected(peer, reason)
     }
 
@@ -315,6 +347,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
     private fun goIdle(event: NearbyEvent?) {
         requestTimeoutJob?.cancel()
         fakeReplyJob?.cancel()
+        clearPhotos()
         _messages.value = emptyList()
         _status.value = PeerStatus.Idle
         if (started) {
@@ -418,11 +451,15 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
-            val packet = payload.asBytes()?.let(Packet::decode) ?: return
-            onPacket(endpointId, packet)
+            when (payload.type) {
+                Payload.Type.BYTES -> payload.asBytes()?.let(Packet::decode)?.let { onPacket(endpointId, it) }
+                Payload.Type.STREAM -> onPhotoStream(endpointId, payload)
+                else -> client.cancelPayload(payload.id)
+            }
         }
 
-        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) = Unit
+        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) =
+            onPhotoProgress(update)
     }
 
     private fun onPacket(endpointId: String, packet: Packet) {
@@ -441,6 +478,10 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
                 receiveMessage(packet.text)
             }
 
+            is Packet.Image -> if (status is PeerStatus.Connected && status.peer.endpointId == endpointId) {
+                onPhotoAnnounced(packet)
+            }
+
             Packet.Bye -> if (status is PeerStatus.Connected && status.peer.endpointId == endpointId) {
                 client.disconnectFromEndpoint(endpointId)
                 endChat(status.peer, PeerStatus.Disconnected.Reason.LEFT)
@@ -450,6 +491,128 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     private fun send(endpointId: String, packet: Packet) =
         client.sendPayload(endpointId, Payload.fromBytes(Packet.encode(packet)))
+
+    // endregion
+
+    // region Photos
+    //
+    // A photo travels as two payloads: a small Packet.Image announcing it (size and
+    // shape, so the bubble can appear straight away), then the JPEG as a stream.
+    // Either may arrive first.
+
+    /** Shrinks the picked photo and sends it to the open chat. */
+    fun sendImage(uri: Uri) {
+        val peer = (_status.value as? PeerStatus.Connected)?.peer ?: return
+        val out = File(chatPhotosDir, "out-${System.nanoTime()}.jpg")
+        photoJobs += scope.launch {
+            val photo = withContext(Dispatchers.IO) { ImageCompressor.compress(appContext, uri, out) }
+            if (photo == null) {
+                _events.tryEmit(NearbyEvent.PhotoUnreadable)
+                return@launch
+            }
+            // The chat may have ended while we were compressing.
+            if ((_status.value as? PeerStatus.Connected)?.peer != peer) return@launch
+
+            val size = photo.file.length()
+            val message = Message(
+                nextMessageId++, text = "", System.currentTimeMillis(), fromMe = true,
+                image = ImageAttachment(photo.file, photo.width, photo.height, progress = 0f),
+            )
+            _messages.update { it + message }
+
+            if (FakePeers.isFake(peer.endpointId)) {
+                fakePhotoReply(message)
+                return@launch
+            }
+            val payload = Payload.fromStream(ParcelFileDescriptor.open(photo.file, ParcelFileDescriptor.MODE_READ_ONLY))
+            photoMessages[payload.id] = message.id
+            photoSizes[payload.id] = size
+            send(peer.endpointId, Packet.Image(payload.id, size, photo.width, photo.height, message.timestamp))
+            client.sendPayload(peer.endpointId, payload).addOnFailureListener { e ->
+                Log.w(TAG, "sending photo failed", e)
+                updateMessage(message.id) { it.copy(failed = true) }
+            }
+        }
+    }
+
+    private fun onPhotoAnnounced(packet: Packet.Image) {
+        if (packet.size !in 1..Packet.Image.MAX_SIZE || packet.w <= 0 || packet.h <= 0) return
+        val message = Message(
+            nextMessageId++, text = "", System.currentTimeMillis(), fromMe = false,
+            image = ImageAttachment(file = null, packet.w, packet.h, progress = 0f),
+        )
+        _messages.update { it + message }
+        photoMessages[packet.payloadId] = message.id
+        photoSizes[packet.payloadId] = packet.size
+        earlyStreams.remove(packet.payloadId)?.let(::readPhoto)
+    }
+
+    private fun onPhotoStream(endpointId: String, payload: Payload) {
+        val status = _status.value
+        if (status !is PeerStatus.Connected || status.peer.endpointId != endpointId) {
+            client.cancelPayload(payload.id)
+            return
+        }
+        if (payload.id in photoMessages) readPhoto(payload) else earlyStreams[payload.id] = payload
+    }
+
+    /** Copies an incoming photo stream to a file; Nearby feeds it as bytes arrive. */
+    private fun readPhoto(payload: Payload) {
+        val messageId = photoMessages[payload.id] ?: return
+        val expected = photoSizes[payload.id] ?: return
+        val file = File(chatPhotosDir, "in-${payload.id}.jpg")
+        photoJobs += scope.launch {
+            val complete = withContext(Dispatchers.IO) {
+                runCatching {
+                    file.parentFile?.mkdirs()
+                    val input = payload.asStream()?.asInputStream() ?: return@runCatching false
+                    input.use { copyLimited(it, file, limit = expected) } == expected
+                }.getOrDefault(false)
+            }
+            if (complete) {
+                updatePhoto(messageId) { it.copy(file = file, progress = null) }
+            } else {
+                file.delete()
+                updateMessage(messageId) { it.copy(failed = true) }
+            }
+        }
+    }
+
+    private fun onPhotoProgress(update: PayloadTransferUpdate) {
+        val messageId = photoMessages[update.payloadId] ?: return
+        when (update.status) {
+            PayloadTransferUpdate.Status.IN_PROGRESS -> {
+                val total = photoSizes[update.payloadId]?.takeIf { it > 0 } ?: return
+                val fraction = (update.bytesTransferred / total.toFloat()).coerceIn(0f, 1f)
+                updatePhoto(messageId) { if (it.progress != null) it.copy(progress = fraction) else it }
+            }
+            // For photos we receive, readPhoto() marks them complete once the file is written.
+            PayloadTransferUpdate.Status.SUCCESS ->
+                if (_messages.value.any { it.id == messageId && it.fromMe }) {
+                    updatePhoto(messageId) { it.copy(progress = null) }
+                }
+            PayloadTransferUpdate.Status.FAILURE, PayloadTransferUpdate.Status.CANCELED ->
+                updateMessage(messageId) { it.copy(failed = true) }
+        }
+    }
+
+    /** Ends this chat's photo transfers and deletes its photos. */
+    private fun clearPhotos() {
+        photoJobs.forEach { it.cancel() }
+        photoJobs.clear()
+        earlyStreams.values.forEach { runCatching { it.asStream()?.asInputStream()?.close() } }
+        earlyStreams.clear()
+        photoMessages.clear()
+        photoSizes.clear()
+        val dir = chatPhotosDir
+        scope.launch(Dispatchers.IO) { dir.deleteRecursively() }
+    }
+
+    private fun updateMessage(id: Long, change: (Message) -> Message) =
+        _messages.update { list -> list.map { if (it.id == id) change(it) else it } }
+
+    private fun updatePhoto(id: Long, change: (ImageAttachment) -> ImageAttachment) =
+        updateMessage(id) { message -> message.image?.let { message.copy(image = change(it)) } ?: message }
 
     // endregion
 
@@ -479,6 +642,31 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Test Bot "receives" the photo with a progress ring, then sends the same one back. */
+    private fun fakePhotoReply(sent: Message) {
+        val photo = sent.image ?: return
+        photoJobs += scope.launch {
+            for (step in 1..FAKE_PHOTO_STEPS) {
+                delay(FAKE_PHOTO_STEP_MS)
+                updatePhoto(sent.id) { it.copy(progress = step / FAKE_PHOTO_STEPS.toFloat()) }
+            }
+            updatePhoto(sent.id) { it.copy(progress = null) }
+
+            delay(FAKE_REPLY_DELAY_MS / 2)
+            if (_status.value !is PeerStatus.Connected) return@launch
+            val reply = Message(
+                nextMessageId++, text = "", System.currentTimeMillis(), fromMe = false,
+                image = photo.copy(file = null, progress = 0f),
+            )
+            _messages.update { it + reply }
+            for (step in 1..FAKE_PHOTO_STEPS) {
+                delay(FAKE_PHOTO_STEP_MS)
+                updatePhoto(reply.id) { it.copy(progress = step / FAKE_PHOTO_STEPS.toFloat()) }
+            }
+            updatePhoto(reply.id) { it.copy(file = photo.file, progress = null) }
+        }
+    }
+
     // endregion
 
     private fun report(message: String, e: Exception) {
@@ -499,6 +687,8 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
         private const val FAKE_PEER_DELAY_MS = 1500L
         private const val FAKE_REPLY_DELAY_MS = 1500L
+        private const val FAKE_PHOTO_STEPS = 10
+        private const val FAKE_PHOTO_STEP_MS = 150L
 
         /** Give up if the other person hasn't answered by then. */
         private const val REQUEST_TIMEOUT_MS = 45_000L

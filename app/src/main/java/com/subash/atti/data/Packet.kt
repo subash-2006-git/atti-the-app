@@ -22,6 +22,18 @@ sealed interface Packet {
 
     @Serializable @SerialName("msg") data class Text(val text: String, val ts: Long) : Packet
 
+    /**
+     * Announces a photo. Its JPEG bytes follow as a separate Nearby stream payload
+     * with id [payloadId] (byte packets are capped at 32 KB, photos are bigger).
+     */
+    @Serializable @SerialName("img")
+    data class Image(val payloadId: Long, val size: Long, val w: Int, val h: Int, val ts: Long) : Packet {
+        companion object {
+            /** Refuse anything bigger; our own photos are a few hundred KB. */
+            const val MAX_SIZE = 10L * 1024 * 1024
+        }
+    }
+
     companion object {
         private val json = Json {
             classDiscriminator = "t"

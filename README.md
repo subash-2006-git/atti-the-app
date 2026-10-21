@@ -13,9 +13,9 @@ which picks Bluetooth, BLE or Wi-Fi Direct by itself and encrypts the link.
 
 | | |
 |---|---|
-| Messages | Text only, up to 1,000 characters |
+| Messages | Text (up to 1,000 characters) and photos |
 | Chats | One person at a time; the other person must tap Accept |
-| History | Not saved — cleared when the chat ends or the app closes |
+| History | Not saved — messages and photos are deleted when the chat ends or the app closes |
 | Accounts / server | None; everything stays on the two phones |
 | Android | 8.0 (API 26) or newer, with Google Play Services |
 
@@ -52,7 +52,7 @@ Debug builds add three pretend users to the scan list:
 
 | Bot | What it does |
 |---|---|
-| **Test Bot** | Accepts, then echoes your messages. Send `/bye` to make it leave, `/lost` to make it go out of range. |
+| **Test Bot** | Accepts, then echoes your messages and photos. Send `/bye` to make it leave, `/lost` to make it go out of range. |
 | **Shy Bot** | Declines your request. |
 | **Busy Bot** | Answers that it is busy in another chat. |
 
@@ -73,6 +73,7 @@ JSON packets over the link:
 | `{"t":"hi"}` | Sent by the person who accepted: the chat is open |
 | `{"t":"busy"}` | Sent instead of `hi` when already in a chat |
 | `{"t":"msg","text":"…","ts":…}` | A text message |
+| `{"t":"img","payloadId":…,"size":…,"w":…,"h":…,"ts":…}` | A photo is coming; its JPEG follows as a Nearby stream payload with that id |
 | `{"t":"bye"}` | The sender left the chat |
 
 A phone that is already chatting briefly accepts a new request just to send

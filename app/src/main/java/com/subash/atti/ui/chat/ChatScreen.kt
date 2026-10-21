@@ -1,6 +1,10 @@
 package com.subash.atti.ui.chat
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +35,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -45,10 +51,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.subash.atti.R
 import com.subash.atti.data.model.Message
 import com.subash.atti.data.model.Peer
 import com.subash.atti.data.model.PeerStatus
@@ -63,13 +71,22 @@ fun ChatScreen(
     /** Null while connected; otherwise why the chat ended. */
     disconnected: PeerStatus.Disconnected.Reason?,
     messages: List<Message>,
+    snackbarHostState: SnackbarHostState,
     onSend: (String) -> Unit,
+    onSendImage: (Uri) -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val connected = disconnected == null
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    // Android's photo picker: no storage permission needed.
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let(onSendImage)
+    }
+    var viewingId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val viewing = messages.firstOrNull { it.id == viewingId && it.image?.file != null }
 
     // The list is drawn bottom-up, so item 0 is the newest message; scrolling to it shows
     // the end of a message even when it is taller than the screen.
@@ -101,6 +118,7 @@ fun ChatScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             Modifier
@@ -112,7 +130,7 @@ fun ChatScreen(
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
                     Text(
-                        "Say hi to ${peer.name}. Messages aren't saved and disappear when you leave this chat.",
+                        "Say hi to ${peer.name}. Messages and photos aren't saved and disappear when you leave this chat.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -126,19 +144,41 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(messages.asReversed(), key = { it.id }) { MessageBubble(it) }
+                    items(messages.asReversed(), key = { it.id }) { message ->
+                        if (message.image != null) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                horizontalArrangement = if (message.fromMe) Arrangement.End else Arrangement.Start,
+                            ) {
+                                PhotoBubble(message, senderName = peer.name, onOpen = { viewingId = message.id })
+                            }
+                        } else {
+                            MessageBubble(message)
+                        }
+                    }
                 }
             }
             InputBar(
                 draft = draft,
                 onDraftChange = { draft = it.take(Message.MAX_LENGTH) },
                 enabled = connected,
+                onPickPhoto = {
+                    pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
                 onSend = {
                     onSend(draft)
                     draft = ""
                 },
             )
         }
+    }
+
+    viewing?.let { message ->
+        PhotoViewer(
+            message = message,
+            title = if (message.fromMe) "You" else peer.name,
+            onDismiss = { viewingId = null },
+        )
     }
 }
 
@@ -202,6 +242,7 @@ private fun InputBar(
     draft: String,
     onDraftChange: (String) -> Unit,
     enabled: Boolean,
+    onPickPhoto: () -> Unit,
     onSend: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -217,6 +258,16 @@ private fun InputBar(
                 onValueChange = onDraftChange,
                 enabled = enabled,
                 placeholder = { Text(if (enabled) "Message" else "Can't send while disconnected") },
+                // Like Instagram, the photo button sits in the box and steps aside while typing.
+                trailingIcon = if (draft.isEmpty()) {
+                    {
+                        IconButton(onClick = onPickPhoto, enabled = enabled) {
+                            Icon(painterResource(R.drawable.ic_photo), contentDescription = "Send a photo")
+                        }
+                    }
+                } else {
+                    null
+                },
                 maxLines = 5,
                 shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
@@ -241,5 +292,5 @@ private fun InputBar(
     }
 }
 
-private fun formatTime(timestamp: Long): String =
+internal fun formatTime(timestamp: Long): String =
     DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp))

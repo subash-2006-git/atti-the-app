@@ -26,4 +26,7 @@ sealed interface NearbyEvent {
     data class Failed(val peer: Peer) : NearbyEvent
     data class NoAnswer(val peer: Peer) : NearbyEvent
     data class Error(val message: String) : NearbyEvent
+
+    /** The picked photo couldn't be read or compressed. */
+    data object PhotoUnreadable : NearbyEvent
 }

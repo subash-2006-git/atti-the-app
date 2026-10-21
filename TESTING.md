@@ -32,6 +32,15 @@ Phone A = your phone, Phone B = the borrowed phone. Tick each item.
 - [ ] Rotate the phone → chat and draft stay
 - [ ] Turn off mobile data and Wi-Fi internet / airplane mode with Bluetooth on → chat still works
 
+## Photos
+- [ ] Photo button opens the photo picker; picking a photo sends it
+- [ ] Sender sees the photo dimmed with a progress ring, then clear
+- [ ] Receiver sees it appear on the left, upright and not stretched
+- [ ] A real camera photo (several MB, taken sideways) arrives upright within a few seconds
+- [ ] Tap a photo → full screen; pinch and double-tap zoom; Back closes it
+- [ ] Walk out of range while a big photo is sending → it shows "Not sent" / "Couldn't receive"
+- [ ] Leave the chat → photos are gone (they are never saved)
+
 ## Disconnects
 - [ ] B presses Back → A immediately sees "B left the chat", Send is disabled, messages stay
 - [ ] A presses Back → back on the scan list, can find B again

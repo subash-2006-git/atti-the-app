@@ -73,6 +73,8 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.play.services.nearby)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.exifinterface)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
