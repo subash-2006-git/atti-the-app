@@ -12,7 +12,7 @@ First version: offline one-to-one text chat between nearby phones.
 - Name screen on first launch (1–20 characters), saved on the phone.
 - Permission handling for Android 8 to 16, with "Try again" after a refusal and
   a link to Settings after "Don't ask again". Prompts to turn on Bluetooth,
-  Wi-Fi and (up to Android 12L) Location. Checks for Google Play Services.
+  Wi-Fi and Location. Checks for Google Play Services.
 - Scan screen: searching loader, list of nearby ATTI users, and a
   "No one nearby yet" state with Rescan.
 - Chat requests: the other person gets an Accept / Decline popup; the requester
@@ -20,3 +20,10 @@ First version: offline one-to-one text chat between nearby phones.
 - Chat screen: message bubbles with times, Connected / Disconnected status,
   and a banner when the other person leaves or goes out of range.
 - Debug builds: Test Bot, Shy Bot and Busy Bot for testing with one phone.
+
+### Fixed since 1.0.0-rc.1
+- Phones could not find each other on Android 13+: Nearby Connections needs the
+  location permission on every version. ATTI now asks for it (approximate is
+  enough) and explains why.
+- The end of a long message was cut off in the chat; newest messages now sit
+  at the bottom and are always fully visible.

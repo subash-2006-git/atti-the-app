@@ -41,3 +41,28 @@ Phone A = your phone, Phone B = the borrowed phone. Tick each item.
 
 ## Result
 Record the date, both phone models and Android versions, and anything that failed.
+
+### 2026-10-21 — 1.0.0-rc.2 (release build)
+Phones: moto g64 5G (Android 16) and vivo I2219 (Android 16), driven over adb.
+
+| Check | Result |
+|---|---|
+| Blank name error, 20-character limit | Pass |
+| Wi-Fi off → "Turn on Wi-Fi" screen | Pass |
+| Each phone finds the other | Pass (failed in rc.1: missing location permission — fixed) |
+| Request → Decline → "declined" message | Pass |
+| Cancel request → other phone's popup closes | Pass |
+| Accept → both open the chat, Connected | Pass, in both directions |
+| Messages both ways, with times | Pass |
+| Long message (~1,000 characters) arrives whole | Pass (end was cut off on screen in rc.1 — fixed) |
+| Back → other side sees "left the chat" | Pass, within 2 s |
+| Bluetooth off mid-chat → out-of-range banner | Pass, both phones, ~22 s |
+| App force-closed mid-chat → banner on the other phone | Pass, ~6 s |
+| No answer → "didn't answer" after 45 s, popup closes | Pass, 47 s |
+| Refusing permissions → Try again / Open Settings | Not tested (Allow was tapped on both phones) |
+| Busy (needs a 3rd phone) | Not tested; covered by Busy Bot in debug builds |
+| Chat with mobile data off | Not tested (skipped at the owner's request) |
+| Emoji / Tamil text, rotation, walking out of range | Not tested (needs hands-on) |
+
+Seen once: a request didn't reach the other phone right after both apps were
+reinstalled; repeating the tap worked and it didn't recur.
