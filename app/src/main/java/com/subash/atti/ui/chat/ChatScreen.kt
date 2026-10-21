@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.subash.atti.data.model.Message
 import com.subash.atti.data.model.Peer
+import com.subash.atti.data.model.PeerStatus
 import com.subash.atti.ui.scan.Avatar
 import java.text.DateFormat
 import java.util.Date
@@ -59,12 +60,14 @@ import java.util.Date
 @Composable
 fun ChatScreen(
     peer: Peer,
-    connected: Boolean,
+    /** Null while connected; otherwise why the chat ended. */
+    disconnected: PeerStatus.Disconnected.Reason?,
     messages: List<Message>,
     onSend: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
+    val connected = disconnected == null
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -104,6 +107,7 @@ fun ChatScreen(
                 .padding(top = padding.calculateTopPadding())
                 .imePadding(),
         ) {
+            if (disconnected != null) DisconnectedBanner(peer, disconnected)
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty()) {
                     Text(
@@ -131,6 +135,27 @@ fun ChatScreen(
                     onSend(draft)
                     draft = ""
                 },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DisconnectedBanner(peer: Peer, reason: PeerStatus.Disconnected.Reason) {
+    Surface(color = MaterialTheme.colorScheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                when (reason) {
+                    PeerStatus.Disconnected.Reason.OUT_OF_RANGE -> "Disconnected – out of range"
+                    PeerStatus.Disconnected.Reason.LEFT -> "${peer.name} left the chat"
+                },
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                "Go back to find them again.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
         }
     }

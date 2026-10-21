@@ -131,7 +131,7 @@ fun AttiApp() {
                 if (peer != null) {
                     ChatScreen(
                         peer = peer,
-                        connected = status is PeerStatus.Connected,
+                        disconnected = (status as? PeerStatus.Disconnected)?.reason,
                         messages = messages,
                         onSend = app.nearby::sendMessage,
                         onBack = app.nearby::leaveChat,

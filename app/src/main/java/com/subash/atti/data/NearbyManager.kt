@@ -281,7 +281,13 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     /** Back pressed in the chat: tell the other side, hang up and return to scanning. */
     fun leaveChat() {
-        val status = _status.value as? PeerStatus.Connected ?: return
+        val status = _status.value
+        if (status is PeerStatus.Disconnected) {
+            // Link is already gone; just close the chat.
+            goIdle(event = null)
+            return
+        }
+        if (status !is PeerStatus.Connected) return
         val endpointId = status.peer.endpointId
         if (!FakePeers.isFake(endpointId)) {
             send(endpointId, Packet.Bye).addOnCompleteListener {
@@ -292,6 +298,12 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
             }
         }
         goIdle(event = null)
+    }
+
+    /** The link dropped mid-chat: keep the messages on screen but stop sending. */
+    private fun endChat(peer: Peer, reason: PeerStatus.Disconnected.Reason) {
+        fakeReplyJob?.cancel()
+        _status.value = PeerStatus.Disconnected(peer, reason)
     }
 
     private fun receiveMessage(text: String) {
@@ -394,6 +406,11 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
                     if (status.peer.endpointId == endpointId) goIdle(NearbyEvent.Failed(status.peer))
                 is PeerStatus.Accepting ->
                     if (status.peer.endpointId == endpointId) goIdle(NearbyEvent.Failed(status.peer))
+                // No Bye first, so they walked away, switched off Bluetooth or closed the app.
+                is PeerStatus.Connected ->
+                    if (status.peer.endpointId == endpointId) {
+                        endChat(status.peer, PeerStatus.Disconnected.Reason.OUT_OF_RANGE)
+                    }
                 else -> Unit
             }
         }
@@ -424,7 +441,10 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
                 receiveMessage(packet.text)
             }
 
-            Packet.Bye -> Unit
+            Packet.Bye -> if (status is PeerStatus.Connected && status.peer.endpointId == endpointId) {
+                client.disconnectFromEndpoint(endpointId)
+                endChat(status.peer, PeerStatus.Disconnected.Reason.LEFT)
+            }
         }
     }
 
@@ -450,8 +470,12 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
     private fun fakeChatReply(text: String) {
         fakeReplyJob = scope.launch {
             delay(FAKE_REPLY_DELAY_MS / 2)
-            if (_status.value !is PeerStatus.Connected) return@launch
-            receiveMessage("You said: $text")
+            val status = _status.value as? PeerStatus.Connected ?: return@launch
+            when (text) {
+                "/bye" -> endChat(status.peer, PeerStatus.Disconnected.Reason.LEFT)
+                "/lost" -> endChat(status.peer, PeerStatus.Disconnected.Reason.OUT_OF_RANGE)
+                else -> receiveMessage("You said: $text")
+            }
         }
     }
 
