@@ -12,6 +12,9 @@ import com.google.android.gms.nearby.connection.ConnectionsStatusCodes
 import com.google.android.gms.nearby.connection.DiscoveredEndpointInfo
 import com.google.android.gms.nearby.connection.DiscoveryOptions
 import com.google.android.gms.nearby.connection.EndpointDiscoveryCallback
+import com.google.android.gms.nearby.connection.Payload
+import com.google.android.gms.nearby.connection.PayloadCallback
+import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import com.subash.atti.BuildConfig
 import com.subash.atti.data.model.NearbyEvent
@@ -44,6 +47,11 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
     private var advertising = false
     private var discovering = false
     private var fakePeersJob: Job? = null
+    private var requestTimeoutJob: Job? = null
+    private var fakeReplyJob: Job? = null
+
+    /** Requests we accepted only to answer "busy" before hanging up. */
+    private val busyEndpoints = mutableSetOf<String>()
 
     private val _peers = MutableStateFlow<List<Peer>>(emptyList())
     val peers: StateFlow<List<Peer>> = _peers.asStateFlow()
@@ -53,6 +61,10 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     private val _status = MutableStateFlow<PeerStatus>(PeerStatus.Idle)
     val status: StateFlow<PeerStatus> = _status.asStateFlow()
+
+    /** Someone asking to chat with us, waiting for Accept or Decline. */
+    private val _incoming = MutableStateFlow<Peer?>(null)
+    val incoming: StateFlow<Peer?> = _incoming.asStateFlow()
 
     private val _events = MutableSharedFlow<NearbyEvent>(extraBufferCapacity = 8)
     val events: SharedFlow<NearbyEvent> = _events.asSharedFlow()
@@ -92,7 +104,11 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         stopDiscovery()
         stopAdvertising()
         client.stopAllEndpoints()
+        requestTimeoutJob?.cancel()
+        fakeReplyJob?.cancel()
+        busyEndpoints.clear()
         _peers.value = emptyList()
+        _incoming.value = null
         _status.value = PeerStatus.Idle
     }
 
@@ -163,17 +179,221 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     // endregion
 
-    // region Connections
+    // region Requests
+
+    /** Asks [peer] to chat. The answer arrives as a status change or an event. */
+    fun requestChat(peer: Peer) {
+        if (_status.value != PeerStatus.Idle) return
+        _status.value = PeerStatus.Requesting(peer)
+        // Nearby is more reliable when it isn't discovering during a connection.
+        stopDiscovery()
+        requestTimeoutJob = scope.launch {
+            delay(REQUEST_TIMEOUT_MS)
+            if (isRequesting(peer.endpointId)) {
+                hangUp(peer.endpointId)
+                endRequest(NearbyEvent.NoAnswer(peer))
+            }
+        }
+
+        if (FakePeers.isFake(peer.endpointId)) {
+            fakeAnswer(peer)
+            return
+        }
+        client.requestConnection(myName, peer.endpointId, connectionCallback)
+            .addOnFailureListener { e ->
+                Log.w(TAG, "requestConnection failed", e)
+                if (isRequesting(peer.endpointId)) endRequest(NearbyEvent.Failed(peer))
+            }
+    }
+
+    fun cancelRequest() {
+        val status = _status.value as? PeerStatus.Requesting ?: return
+        hangUp(status.peer.endpointId)
+        endRequest(event = null)
+    }
+
+    fun acceptIncoming() {
+        val peer = _incoming.value ?: return
+        _incoming.value = null
+        if (_status.value != PeerStatus.Idle) {
+            declineEndpoint(peer.endpointId)
+            return
+        }
+        _status.value = PeerStatus.Accepting(peer)
+        stopDiscovery()
+        if (FakePeers.isFake(peer.endpointId)) {
+            openChat(peer)
+            return
+        }
+        client.acceptConnection(peer.endpointId, payloadCallback)
+            .addOnFailureListener { e ->
+                Log.w(TAG, "acceptConnection failed", e)
+                if ((_status.value as? PeerStatus.Accepting)?.peer == peer) endRequest(NearbyEvent.Failed(peer))
+            }
+    }
+
+    fun declineIncoming() {
+        val peer = _incoming.value ?: return
+        _incoming.value = null
+        declineEndpoint(peer.endpointId)
+    }
+
+    /** Debug builds only: pretend Test Bot is asking to chat. */
+    fun simulateIncomingRequest() {
+        if (BuildConfig.DEBUG && _status.value == PeerStatus.Idle && _incoming.value == null) {
+            _incoming.value = FakePeers.TestBot
+        }
+    }
+
+    private fun isRequesting(endpointId: String) =
+        (_status.value as? PeerStatus.Requesting)?.peer?.endpointId == endpointId
+
+    private fun openChat(peer: Peer) {
+        requestTimeoutJob?.cancel()
+        _status.value = PeerStatus.Connected(peer)
+    }
+
+    /** A request ended without a chat: go back to being visible and scanning. */
+    private fun endRequest(event: NearbyEvent?) {
+        requestTimeoutJob?.cancel()
+        fakeReplyJob?.cancel()
+        _status.value = PeerStatus.Idle
+        if (started) {
+            startAdvertising()
+            startDiscovery()
+        }
+        event?.let(_events::tryEmit)
+    }
+
+    private fun declineEndpoint(endpointId: String) {
+        if (!FakePeers.isFake(endpointId)) client.rejectConnection(endpointId)
+    }
+
+    private fun hangUp(endpointId: String) {
+        if (!FakePeers.isFake(endpointId)) client.disconnectFromEndpoint(endpointId)
+    }
+
+    // endregion
+
+    // region Nearby callbacks
 
     private val connectionCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            // Connection requests arrive in a later step; refuse them for now.
-            client.rejectConnection(endpointId)
+            // Our own outgoing request: Nearby needs both sides to accept.
+            if (!info.isIncomingConnection) {
+                client.acceptConnection(endpointId, payloadCallback)
+                return
+            }
+            val busy = _status.value != PeerStatus.Idle || _incoming.value != null
+            if (busy) {
+                // Accept just long enough to say "busy", so they don't see "declined".
+                busyEndpoints += endpointId
+                client.acceptConnection(endpointId, payloadCallback)
+            } else {
+                _incoming.value = Peer(endpointId, info.endpointName)
+            }
         }
 
-        override fun onConnectionResult(endpointId: String, resolution: ConnectionResolution) = Unit
+        override fun onConnectionResult(endpointId: String, resolution: ConnectionResolution) {
+            val code = resolution.status.statusCode
+            val ok = code == ConnectionsStatusCodes.STATUS_OK
 
-        override fun onDisconnected(endpointId: String) = Unit
+            if (endpointId in busyEndpoints) {
+                if (ok) {
+                    send(endpointId, Packet.Busy)
+                    scope.launch {
+                        delay(BUSY_HANGUP_DELAY_MS)
+                        client.disconnectFromEndpoint(endpointId)
+                    }
+                }
+                busyEndpoints -= endpointId
+                return
+            }
+            if (!ok && _incoming.value?.endpointId == endpointId) {
+                // They cancelled before we answered.
+                _incoming.value = null
+                return
+            }
+
+            when (val status = _status.value) {
+                is PeerStatus.Requesting -> if (status.peer.endpointId == endpointId) {
+                    // On success, wait for their Hi or Busy packet.
+                    when (code) {
+                        ConnectionsStatusCodes.STATUS_OK -> Unit
+                        ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED ->
+                            endRequest(NearbyEvent.Declined(status.peer))
+                        else -> endRequest(NearbyEvent.Failed(status.peer))
+                    }
+                }
+
+                is PeerStatus.Accepting -> if (status.peer.endpointId == endpointId) {
+                    if (ok) {
+                        send(endpointId, Packet.Hi)
+                        openChat(status.peer)
+                    } else {
+                        endRequest(NearbyEvent.Failed(status.peer))
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+
+        override fun onDisconnected(endpointId: String) {
+            busyEndpoints -= endpointId
+            if (_incoming.value?.endpointId == endpointId) _incoming.value = null
+            when (val status = _status.value) {
+                is PeerStatus.Requesting ->
+                    if (status.peer.endpointId == endpointId) endRequest(NearbyEvent.Failed(status.peer))
+                is PeerStatus.Accepting ->
+                    if (status.peer.endpointId == endpointId) endRequest(NearbyEvent.Failed(status.peer))
+                else -> Unit
+            }
+        }
+    }
+
+    private val payloadCallback = object : PayloadCallback() {
+        override fun onPayloadReceived(endpointId: String, payload: Payload) {
+            val packet = payload.asBytes()?.let(Packet::decode) ?: return
+            onPacket(endpointId, packet)
+        }
+
+        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) = Unit
+    }
+
+    private fun onPacket(endpointId: String, packet: Packet) {
+        val status = _status.value
+        when (packet) {
+            Packet.Hi -> if (status is PeerStatus.Requesting && status.peer.endpointId == endpointId) {
+                openChat(status.peer)
+            }
+
+            Packet.Busy -> if (status is PeerStatus.Requesting && status.peer.endpointId == endpointId) {
+                client.disconnectFromEndpoint(endpointId)
+                endRequest(NearbyEvent.Busy(status.peer))
+            }
+
+            Packet.Bye, is Packet.Text -> Unit
+        }
+    }
+
+    private fun send(endpointId: String, packet: Packet) =
+        client.sendPayload(endpointId, Payload.fromBytes(Packet.encode(packet)))
+
+    // endregion
+
+    // region Fake peers (debug builds)
+
+    private fun fakeAnswer(peer: Peer) {
+        fakeReplyJob = scope.launch {
+            delay(FAKE_REPLY_DELAY_MS)
+            if (!isRequesting(peer.endpointId)) return@launch
+            when (peer) {
+                FakePeers.ShyBot -> endRequest(NearbyEvent.Declined(peer))
+                FakePeers.BusyBot -> endRequest(NearbyEvent.Busy(peer))
+                else -> openChat(peer)
+            }
+        }
     }
 
     // endregion
@@ -195,5 +415,12 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         private val STRATEGY = Strategy.P2P_CLUSTER
 
         private const val FAKE_PEER_DELAY_MS = 1500L
+        private const val FAKE_REPLY_DELAY_MS = 1500L
+
+        /** Give up if the other person hasn't answered by then. */
+        private const val REQUEST_TIMEOUT_MS = 45_000L
+
+        /** Time for the Busy packet to arrive before we disconnect. */
+        private const val BUSY_HANGUP_DELAY_MS = 1_000L
     }
 }

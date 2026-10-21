@@ -24,5 +24,6 @@ sealed interface NearbyEvent {
     data class Declined(val peer: Peer) : NearbyEvent
     data class Busy(val peer: Peer) : NearbyEvent
     data class Failed(val peer: Peer) : NearbyEvent
+    data class NoAnswer(val peer: Peer) : NearbyEvent
     data class Error(val message: String) : NearbyEvent
 }
