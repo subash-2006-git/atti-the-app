@@ -78,3 +78,18 @@ Phones: moto g64 5G (Android 16) and vivo I2219 (Android 16), driven over adb.
 Known issue: twice, right after ATTI was reinstalled on one phone, the first
 request didn't reach the other phone and left no trace in the logs. Tapping the
 name again worked both times.
+
+### 2026-10-21 — 1.1.0 photo sharing (debug build)
+Phones: moto g64 5G and vivo I2219 (Android 16), driven over adb with two
+generated test pictures (3000×2000 landscape, 1200×2400 portrait).
+
+| Check | Result |
+|---|---|
+| Photo button opens the picker; picking sends | Pass on both phones (the vivo picker needs **Done** after ticking) |
+| Sender sees dimmed photo with progress ring, then clear | Pass (Test Bot) |
+| Moto → vivo, landscape | Pass, under 1 s, upright, not stretched |
+| vivo → Moto, portrait | Pass, upright |
+| Full-screen viewer, double-tap zoom, Back closes | Pass |
+| Photos deleted after leaving the chat | Pass, 0 files left in the app cache |
+| Real camera photo taken sideways | Not tested yet |
+| Out of range while a photo is sending | Not tested yet |
