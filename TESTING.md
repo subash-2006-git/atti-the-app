@@ -59,10 +59,13 @@ Phones: moto g64 5G (Android 16) and vivo I2219 (Android 16), driven over adb.
 | Bluetooth off mid-chat → out-of-range banner | Pass, both phones, ~22 s |
 | App force-closed mid-chat → banner on the other phone | Pass, ~6 s |
 | No answer → "didn't answer" after 45 s, popup closes | Pass, 47 s |
-| Refusing permissions → Try again / Open Settings | Not tested (Allow was tapped on both phones) |
+| Refusing permissions → Try again → refuse again → Open Settings → grant → scan resumes | Pass (vivo, fresh install; granted from adb rather than by tapping in Settings) |
+| Rotation mid-chat: messages, Connected status and unsent draft kept; send in landscape | Pass |
+| Tamil and emoji both ways (வணக்கம் 🥰🐱 😹) | Pass, typed by hand |
+| Walking out of range → banner on both phones | Pass, at roughly 50–75 m; Moto noticed ~1.5 min after the walk began |
 | Busy (needs a 3rd phone) | Not tested; covered by Busy Bot in debug builds |
-| Chat with mobile data off | Not tested (skipped at the owner's request) |
-| Emoji / Tamil text, rotation, walking out of range | Not tested (needs hands-on) |
+| Chat with mobile data off | Owner to test by hand |
 
-Seen once: a request didn't reach the other phone right after both apps were
-reinstalled; repeating the tap worked and it didn't recur.
+Known issue: twice, right after ATTI was reinstalled on one phone, the first
+request didn't reach the other phone and left no trace in the logs. Tapping the
+name again worked both times.
