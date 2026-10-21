@@ -71,9 +71,10 @@ fun ChatScreen(
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // Keep the newest message in view.
+    // The list is drawn bottom-up, so item 0 is the newest message; scrolling to it shows
+    // the end of a message even when it is taller than the screen.
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+        if (messages.isNotEmpty()) listState.animateScrollToItem(0)
     }
 
     Scaffold(
@@ -120,11 +121,12 @@ fun ChatScreen(
                 }
                 LazyColumn(
                     state = listState,
+                    reverseLayout = true,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(messages, key = { it.id }) { MessageBubble(it) }
+                    items(messages.asReversed(), key = { it.id }) { MessageBubble(it) }
                 }
             }
             InputBar(
