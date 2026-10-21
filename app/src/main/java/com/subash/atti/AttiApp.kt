@@ -122,6 +122,12 @@ fun AttiApp() {
             }
             composable<ChatRoute> {
                 val messages by app.nearby.messages.collectAsStateWithLifecycle()
+                val snackbarHostState = remember { SnackbarHostState() }
+                LaunchedEffect(Unit) {
+                    app.nearby.events.collect { event ->
+                        snackbarHostState.showSnackbar(event.toMessage())
+                    }
+                }
                 val peer = when (val s = status) {
                     is PeerStatus.Connected -> s.peer
                     is PeerStatus.Disconnected -> s.peer
@@ -133,7 +139,9 @@ fun AttiApp() {
                         peer = peer,
                         disconnected = (status as? PeerStatus.Disconnected)?.reason,
                         messages = messages,
+                        snackbarHostState = snackbarHostState,
                         onSend = app.nearby::sendMessage,
+                        onSendImage = app.nearby::sendImage,
                         onBack = app.nearby::leaveChat,
                     )
                 }
@@ -148,6 +156,7 @@ private fun NearbyEvent.toMessage(): String = when (this) {
     is NearbyEvent.Failed -> "Couldn't connect to ${peer.name}. Try again."
     is NearbyEvent.NoAnswer -> "${peer.name} didn't answer. Try again later."
     is NearbyEvent.Error -> "$message. Try Rescan."
+    NearbyEvent.PhotoUnreadable -> "Couldn't open that photo. Try another one."
 }
 
 /** Debug builds only: makes Test Bot send us a chat request. */
