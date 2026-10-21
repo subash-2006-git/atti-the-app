@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.subash.atti.ui.name.NameScreen
+import com.subash.atti.ui.permissions.PermissionGate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -48,7 +49,7 @@ fun AttiApp() {
                     }
                 })
             }
-            composable<ScanRoute> { Placeholder("Scan") }
+            composable<ScanRoute> { PermissionGate { Placeholder("Scan") } }
             composable<ChatRoute> { Placeholder("Chat") }
         }
     }
