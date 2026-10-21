@@ -64,7 +64,7 @@ Phones: moto g64 5G (Android 16) and vivo I2219 (Android 16), driven over adb.
 | Tamil and emoji both ways (வணக்கம் 🥰🐱 😹) | Pass, typed by hand |
 | Walking out of range → banner on both phones | Pass, at roughly 50–75 m; Moto noticed ~1.5 min after the walk began |
 | Busy (needs a 3rd phone) | Not tested; covered by Busy Bot in debug builds |
-| Chat with mobile data off | Owner to test by hand |
+| Install from Downloads and chat with mobile data / internet off | Pass, tested by hand by the owner |
 
 Known issue: twice, right after ATTI was reinstalled on one phone, the first
 request didn't reach the other phone and left no trace in the logs. Tapping the

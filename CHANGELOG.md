@@ -4,7 +4,7 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## 1.0.0 - Unreleased
+## 1.0.0 - 2026-10-21
 
 First version: offline one-to-one text chat between nearby phones.
 
