@@ -1,7 +1,5 @@
 package com.subash.atti
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -9,21 +7,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -33,10 +29,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.subash.atti.data.model.NearbyEvent
 import com.subash.atti.data.model.PeerStatus
-import com.subash.atti.ui.scan.ConnectingDialog
-import com.subash.atti.ui.scan.IncomingRequestDialog
+import com.subash.atti.ui.chat.ChatScreen
 import com.subash.atti.ui.name.NameScreen
 import com.subash.atti.ui.permissions.PermissionGate
+import com.subash.atti.ui.scan.ConnectingDialog
+import com.subash.atti.ui.scan.IncomingRequestDialog
 import com.subash.atti.ui.scan.ScanScreen
 import com.subash.atti.ui.scan.ScanViewModel
 import kotlinx.coroutines.flow.first
@@ -45,7 +42,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable object NameRoute
 @Serializable object ScanRoute
-@Serializable data class ChatRoute(val peerName: String)
+@Serializable object ChatRoute
 
 @Composable
 fun AttiApp() {
@@ -64,12 +61,13 @@ fun AttiApp() {
         val startRoute = start ?: return@Surface
         val navController = rememberNavController()
 
-        // Open the chat as soon as a link is up, whichever side asked.
+        // The chat screen follows the link: open it as soon as a link is up (whichever
+        // side asked), and leave it once the chat has ended.
         LaunchedEffect(status) {
-            val connected = status as? PeerStatus.Connected ?: return@LaunchedEffect
-            if (navController.currentDestination?.hasRoute<ChatRoute>() != true) {
-                navController.navigate(ChatRoute(connected.peer.name))
-            }
+            val onChat = navController.currentDestination?.hasRoute<ChatRoute>() == true
+            val inChat = status is PeerStatus.Connected || status is PeerStatus.Disconnected
+            if (inChat && !onChat) navController.navigate(ChatRoute)
+            if (!inChat && onChat) navController.popBackStack()
         }
 
         // A request can arrive while any screen is open, so the popup lives here.
@@ -122,7 +120,24 @@ fun AttiApp() {
                     )
                 }
             }
-            composable<ChatRoute> { Placeholder("Chat") }
+            composable<ChatRoute> {
+                val messages by app.nearby.messages.collectAsStateWithLifecycle()
+                val peer = when (val s = status) {
+                    is PeerStatus.Connected -> s.peer
+                    is PeerStatus.Disconnected -> s.peer
+                    else -> null
+                }
+                // peer is null only for the moment between a chat ending and the screen closing.
+                if (peer != null) {
+                    ChatScreen(
+                        peer = peer,
+                        connected = status is PeerStatus.Connected,
+                        messages = messages,
+                        onSend = app.nearby::sendMessage,
+                        onBack = app.nearby::leaveChat,
+                    )
+                }
+            }
         }
     }
 }
@@ -147,12 +162,5 @@ private fun DebugIncomingButton(onClick: () -> Unit) {
         IconButton(onClick = onClick) {
             Icon(Icons.Default.Notifications, contentDescription = "Simulate a request from Test Bot")
         }
-    }
-}
-
-@Composable
-private fun Placeholder(label: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(label, style = MaterialTheme.typography.titleLarge)
     }
 }

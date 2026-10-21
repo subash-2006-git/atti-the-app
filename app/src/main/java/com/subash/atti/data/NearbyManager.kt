@@ -17,6 +17,7 @@ import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import com.subash.atti.BuildConfig
+import com.subash.atti.data.model.Message
 import com.subash.atti.data.model.NearbyEvent
 import com.subash.atti.data.model.Peer
 import com.subash.atti.data.model.PeerStatus
@@ -61,6 +62,11 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     private val _status = MutableStateFlow<PeerStatus>(PeerStatus.Idle)
     val status: StateFlow<PeerStatus> = _status.asStateFlow()
+
+    /** The open chat's messages. Kept in memory only, so they vanish when the chat ends. */
+    private val _messages = MutableStateFlow<List<Message>>(emptyList())
+    val messages: StateFlow<List<Message>> = _messages.asStateFlow()
+    private var nextMessageId = 0L
 
     /** Someone asking to chat with us, waiting for Accept or Decline. */
     private val _incoming = MutableStateFlow<Peer?>(null)
@@ -179,7 +185,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     // endregion
 
-    // region Requests
+    // region Requests and chat
 
     /** Asks [peer] to chat. The answer arrives as a status change or an event. */
     fun requestChat(peer: Peer) {
@@ -191,7 +197,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
             delay(REQUEST_TIMEOUT_MS)
             if (isRequesting(peer.endpointId)) {
                 hangUp(peer.endpointId)
-                endRequest(NearbyEvent.NoAnswer(peer))
+                goIdle(NearbyEvent.NoAnswer(peer))
             }
         }
 
@@ -202,14 +208,14 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         client.requestConnection(myName, peer.endpointId, connectionCallback)
             .addOnFailureListener { e ->
                 Log.w(TAG, "requestConnection failed", e)
-                if (isRequesting(peer.endpointId)) endRequest(NearbyEvent.Failed(peer))
+                if (isRequesting(peer.endpointId)) goIdle(NearbyEvent.Failed(peer))
             }
     }
 
     fun cancelRequest() {
         val status = _status.value as? PeerStatus.Requesting ?: return
         hangUp(status.peer.endpointId)
-        endRequest(event = null)
+        goIdle(event = null)
     }
 
     fun acceptIncoming() {
@@ -228,7 +234,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         client.acceptConnection(peer.endpointId, payloadCallback)
             .addOnFailureListener { e ->
                 Log.w(TAG, "acceptConnection failed", e)
-                if ((_status.value as? PeerStatus.Accepting)?.peer == peer) endRequest(NearbyEvent.Failed(peer))
+                if ((_status.value as? PeerStatus.Accepting)?.peer == peer) goIdle(NearbyEvent.Failed(peer))
             }
     }
 
@@ -250,13 +256,54 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     private fun openChat(peer: Peer) {
         requestTimeoutJob?.cancel()
+        _messages.value = emptyList()
         _status.value = PeerStatus.Connected(peer)
     }
 
-    /** A request ended without a chat: go back to being visible and scanning. */
-    private fun endRequest(event: NearbyEvent?) {
+    fun sendMessage(text: String) {
+        val status = _status.value as? PeerStatus.Connected ?: return
+        val clean = text.trim().take(Message.MAX_LENGTH)
+        if (clean.isEmpty()) return
+        val message = Message(nextMessageId++, clean, System.currentTimeMillis(), fromMe = true)
+        _messages.update { it + message }
+
+        val endpointId = status.peer.endpointId
+        if (FakePeers.isFake(endpointId)) {
+            fakeChatReply(clean)
+            return
+        }
+        send(endpointId, Packet.Text(clean, message.timestamp))
+            .addOnFailureListener { e ->
+                Log.w(TAG, "sendPayload failed", e)
+                _messages.update { list -> list.map { if (it.id == message.id) it.copy(failed = true) else it } }
+            }
+    }
+
+    /** Back pressed in the chat: tell the other side, hang up and return to scanning. */
+    fun leaveChat() {
+        val status = _status.value as? PeerStatus.Connected ?: return
+        val endpointId = status.peer.endpointId
+        if (!FakePeers.isFake(endpointId)) {
+            send(endpointId, Packet.Bye).addOnCompleteListener {
+                scope.launch {
+                    delay(BYE_HANGUP_DELAY_MS)
+                    client.disconnectFromEndpoint(endpointId)
+                }
+            }
+        }
+        goIdle(event = null)
+    }
+
+    private fun receiveMessage(text: String) {
+        // Use our own clock: the two phones' clocks may not agree.
+        _messages.update { it + Message(nextMessageId++, text, System.currentTimeMillis(), fromMe = false) }
+    }
+
+    /** A request or chat ended: go back to being visible and scanning. */
+    private fun goIdle(event: NearbyEvent?) {
         requestTimeoutJob?.cancel()
         fakeReplyJob?.cancel()
+        _messages.value = emptyList()
         _status.value = PeerStatus.Idle
         if (started) {
             startAdvertising()
@@ -321,8 +368,8 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
                     when (code) {
                         ConnectionsStatusCodes.STATUS_OK -> Unit
                         ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED ->
-                            endRequest(NearbyEvent.Declined(status.peer))
-                        else -> endRequest(NearbyEvent.Failed(status.peer))
+                            goIdle(NearbyEvent.Declined(status.peer))
+                        else -> goIdle(NearbyEvent.Failed(status.peer))
                     }
                 }
 
@@ -331,7 +378,7 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
                         send(endpointId, Packet.Hi)
                         openChat(status.peer)
                     } else {
-                        endRequest(NearbyEvent.Failed(status.peer))
+                        goIdle(NearbyEvent.Failed(status.peer))
                     }
                 }
 
@@ -344,9 +391,9 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
             if (_incoming.value?.endpointId == endpointId) _incoming.value = null
             when (val status = _status.value) {
                 is PeerStatus.Requesting ->
-                    if (status.peer.endpointId == endpointId) endRequest(NearbyEvent.Failed(status.peer))
+                    if (status.peer.endpointId == endpointId) goIdle(NearbyEvent.Failed(status.peer))
                 is PeerStatus.Accepting ->
-                    if (status.peer.endpointId == endpointId) endRequest(NearbyEvent.Failed(status.peer))
+                    if (status.peer.endpointId == endpointId) goIdle(NearbyEvent.Failed(status.peer))
                 else -> Unit
             }
         }
@@ -370,10 +417,14 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
             Packet.Busy -> if (status is PeerStatus.Requesting && status.peer.endpointId == endpointId) {
                 client.disconnectFromEndpoint(endpointId)
-                endRequest(NearbyEvent.Busy(status.peer))
+                goIdle(NearbyEvent.Busy(status.peer))
             }
 
-            Packet.Bye, is Packet.Text -> Unit
+            is Packet.Text -> if (status is PeerStatus.Connected && status.peer.endpointId == endpointId) {
+                receiveMessage(packet.text)
+            }
+
+            Packet.Bye -> Unit
         }
     }
 
@@ -389,10 +440,18 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
             delay(FAKE_REPLY_DELAY_MS)
             if (!isRequesting(peer.endpointId)) return@launch
             when (peer) {
-                FakePeers.ShyBot -> endRequest(NearbyEvent.Declined(peer))
-                FakePeers.BusyBot -> endRequest(NearbyEvent.Busy(peer))
+                FakePeers.ShyBot -> goIdle(NearbyEvent.Declined(peer))
+                FakePeers.BusyBot -> goIdle(NearbyEvent.Busy(peer))
                 else -> openChat(peer)
             }
+        }
+    }
+
+    private fun fakeChatReply(text: String) {
+        fakeReplyJob = scope.launch {
+            delay(FAKE_REPLY_DELAY_MS / 2)
+            if (_status.value !is PeerStatus.Connected) return@launch
+            receiveMessage("You said: $text")
         }
     }
 
@@ -422,5 +481,8 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
         /** Time for the Busy packet to arrive before we disconnect. */
         private const val BUSY_HANGUP_DELAY_MS = 1_000L
+
+        /** Time for the Bye packet to arrive before we disconnect. */
+        private const val BYE_HANGUP_DELAY_MS = 500L
     }
 }
