@@ -20,8 +20,8 @@ android {
         applicationId = "com.subash.atti"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.2.0-beta.1"
+        versionCode = 6
+        versionName = "1.2.0-beta.2"
     }
 
     signingConfigs {
