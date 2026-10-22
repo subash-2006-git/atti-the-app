@@ -34,6 +34,30 @@ sealed interface Packet {
         }
     }
 
+    /**
+     * Announces a voice message. Its AAC audio follows as a stream payload with id
+     * [payloadId], like a photo. [wave] is the loudness shape, each bar 0–100.
+     */
+    @Serializable @SerialName("voice")
+    data class Voice(
+        val payloadId: Long,
+        val size: Long,
+        val durationMs: Long,
+        val wave: List<Int>,
+        val ts: Long,
+    ) : Packet {
+        companion object {
+            const val MAX_SIZE = 5L * 1024 * 1024
+            const val MAX_BARS = 64
+        }
+    }
+
+    /**
+     * What the sender is doing: "typing", "recording" or "none". Repeated every few
+     * seconds while it lasts; the receiver forgets it if the repeats stop.
+     */
+    @Serializable @SerialName("typing") data class Typing(val what: String) : Packet
+
     companion object {
         private val json = Json {
             classDiscriminator = "t"
@@ -47,7 +71,11 @@ sealed interface Packet {
         fun decode(bytes: ByteArray): Packet? {
             val packet = runCatching { json.decodeFromString(serializer(), bytes.decodeToString()) }
                 .getOrNull()
-            return if (packet is Text) packet.copy(text = packet.text.take(Message.MAX_LENGTH)) else packet
+            return when (packet) {
+                is Text -> packet.copy(text = packet.text.take(Message.MAX_LENGTH))
+                is Voice -> packet.copy(wave = packet.wave.take(Voice.MAX_BARS).map { it.coerceIn(0, 100) })
+                else -> packet
+            }
         }
     }
 }

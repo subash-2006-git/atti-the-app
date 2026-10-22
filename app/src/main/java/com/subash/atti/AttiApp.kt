@@ -122,6 +122,7 @@ fun AttiApp() {
             }
             composable<ChatRoute> {
                 val messages by app.nearby.messages.collectAsStateWithLifecycle()
+                val peerActivity by app.nearby.peerActivity.collectAsStateWithLifecycle()
                 val snackbarHostState = remember { SnackbarHostState() }
                 LaunchedEffect(Unit) {
                     app.nearby.events.collect { event ->
@@ -139,9 +140,12 @@ fun AttiApp() {
                         peer = peer,
                         disconnected = (status as? PeerStatus.Disconnected)?.reason,
                         messages = messages,
+                        peerActivity = peerActivity,
                         snackbarHostState = snackbarHostState,
                         onSend = app.nearby::sendMessage,
                         onSendImage = app.nearby::sendImage,
+                        onSendVoice = app.nearby::sendVoice,
+                        onActivity = app.nearby::setMyActivity,
                         onBack = app.nearby::leaveChat,
                     )
                 }

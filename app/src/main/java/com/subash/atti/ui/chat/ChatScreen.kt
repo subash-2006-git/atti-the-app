@@ -1,5 +1,7 @@
 package com.subash.atti.ui.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,26 +45,39 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.subash.atti.R
+import com.subash.atti.data.VoiceRecorder
+import com.subash.atti.data.model.ChatActivity
 import com.subash.atti.data.model.Message
 import com.subash.atti.data.model.Peer
 import com.subash.atti.data.model.PeerStatus
 import com.subash.atti.ui.scan.Avatar
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,12 +86,19 @@ fun ChatScreen(
     /** Null while connected; otherwise why the chat ended. */
     disconnected: PeerStatus.Disconnected.Reason?,
     messages: List<Message>,
+    /** What the other person is doing right now. */
+    peerActivity: ChatActivity,
     snackbarHostState: SnackbarHostState,
     onSend: (String) -> Unit,
     onSendImage: (Uri) -> Unit,
+    onSendVoice: (VoiceRecorder.Recording) -> Unit,
+    /** Tells the other phone whether we're typing or recording. */
+    onActivity: (ChatActivity) -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val connected = disconnected == null
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -88,10 +110,100 @@ fun ChatScreen(
     var viewingId by rememberSaveable { mutableStateOf<Long?>(null) }
     val viewing = messages.firstOrNull { it.id == viewingId && it.image?.file != null }
 
+    val player = remember { VoicePlayer() }
+    val recorder = remember { VoiceRecorder(context.applicationContext) }
+    var recording by remember { mutableStateOf(false) }
+    var recordedMs by remember { mutableLongStateOf(0L) }
+    val liveLevels = remember { mutableStateListOf<Float>() }
+
+    fun say(text: String) {
+        scope.launch { snackbarHostState.showSnackbar(text) }
+    }
+
+    fun startRecording() {
+        player.pause()
+        if (recorder.start()) {
+            liveLevels.clear()
+            recordedMs = 0L
+            recording = true
+        } else {
+            say("Couldn't use the microphone. Is it busy with a call?")
+        }
+    }
+
+    fun finishRecording(send: Boolean) {
+        if (!recording) return
+        recording = false
+        onActivity(ChatActivity.NONE)
+        if (!send) {
+            recorder.cancel()
+            return
+        }
+        val result = recorder.stop()
+        if (result != null) onSendVoice(result) else say("Too short to send. Record for at least a second.")
+    }
+
+    val askForMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecording() else say("Allow the microphone in Settings to send voice messages.")
+    }
+
+    // Sample the mic for the live waveform and timer; tell the other side we're recording.
+    LaunchedEffect(recording) {
+        while (recording) {
+            recordedMs = recorder.elapsedMs
+            liveLevels += recorder.sampleLevel()
+            if (liveLevels.size > LIVE_BARS) liveLevels.removeAt(0)
+            onActivity(ChatActivity.RECORDING)
+            if (recordedMs >= VoiceRecorder.MAX_DURATION_MS) finishRecording(send = true)
+            delay(RECORD_TICK_MS)
+        }
+    }
+
+    // While typing, say so; after a few quiet seconds, or once the box is empty, stop saying so.
+    LaunchedEffect(draft) {
+        if (recording) return@LaunchedEffect
+        if (draft.isBlank()) {
+            onActivity(ChatActivity.NONE)
+        } else {
+            onActivity(ChatActivity.TYPING)
+            delay(TYPING_IDLE_MS)
+            onActivity(ChatActivity.NONE)
+        }
+    }
+
+    LaunchedEffect(player.isPlaying) {
+        while (player.isPlaying) {
+            player.updatePosition()
+            delay(PLAYER_TICK_MS)
+        }
+    }
+
+    // A chat that ends mid-recording throws the recording away.
+    LaunchedEffect(connected) {
+        if (!connected) finishRecording(send = false)
+    }
+
+    // Leaving the app stops playback and drops an unfinished recording.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        player.pause()
+        finishRecording(send = false)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            player.release()
+            recorder.cancel()
+        }
+    }
+
     // The list is drawn bottom-up, so item 0 is the newest message; scrolling to it shows
     // the end of a message even when it is taller than the screen.
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(0)
+    }
+    // Reveal the typing bubble, but don't yank someone who has scrolled up to read.
+    LaunchedEffect(peerActivity) {
+        if (peerActivity != ChatActivity.NONE && listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
 
     Scaffold(
@@ -109,7 +221,12 @@ fun ChatScreen(
                         Column {
                             Text(peer.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                if (connected) "Connected" else "Disconnected",
+                                when {
+                                    !connected -> "Disconnected"
+                                    peerActivity == ChatActivity.TYPING -> "typing…"
+                                    peerActivity == ChatActivity.RECORDING -> "recording audio…"
+                                    else -> "Connected"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             )
@@ -128,9 +245,9 @@ fun ChatScreen(
         ) {
             if (disconnected != null) DisconnectedBanner(peer, disconnected)
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (messages.isEmpty()) {
+                if (messages.isEmpty() && peerActivity == ChatActivity.NONE) {
                     Text(
-                        "Say hi to ${peer.name}. Messages and photos aren't saved and disappear when you leave this chat.",
+                        "Say hi to ${peer.name}. Messages, photos and voice messages aren't saved and disappear when you leave this chat.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -144,32 +261,55 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.Bottom),
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    if (connected && peerActivity != ChatActivity.NONE) {
+                        item(key = "typing") {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                TypingBubble(peerActivity, peer.name)
+                            }
+                        }
+                    }
                     items(messages.asReversed(), key = { it.id }) { message ->
-                        if (message.image != null) {
-                            Row(
+                        when {
+                            message.image != null -> Row(
                                 Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                 horizontalArrangement = if (message.fromMe) Arrangement.End else Arrangement.Start,
                             ) {
                                 PhotoBubble(message, senderName = peer.name, onOpen = { viewingId = message.id })
                             }
-                        } else {
-                            MessageBubble(message)
+
+                            message.voice != null -> VoiceBubble(message, player, senderName = peer.name)
+
+                            else -> MessageBubble(message)
                         }
                     }
                 }
             }
-            InputBar(
-                draft = draft,
-                onDraftChange = { draft = it.take(Message.MAX_LENGTH) },
-                enabled = connected,
-                onPickPhoto = {
-                    pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                },
-                onSend = {
-                    onSend(draft)
-                    draft = ""
-                },
-            )
+            if (recording) {
+                RecordingBar(
+                    elapsedMs = recordedMs,
+                    levels = liveLevels,
+                    onCancel = { finishRecording(send = false) },
+                    onSend = { finishRecording(send = true) },
+                )
+            } else {
+                InputBar(
+                    draft = draft,
+                    onDraftChange = { draft = it.take(Message.MAX_LENGTH) },
+                    enabled = connected,
+                    onPickPhoto = {
+                        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onRecord = {
+                        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                            PackageManager.PERMISSION_GRANTED
+                        if (granted) startRecording() else askForMic.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onSend = {
+                        onSend(draft)
+                        draft = ""
+                    },
+                )
+            }
         }
     }
 
@@ -181,6 +321,13 @@ fun ChatScreen(
         )
     }
 }
+
+private const val LIVE_BARS = 40
+private const val RECORD_TICK_MS = 100L
+private const val PLAYER_TICK_MS = 50L
+
+/** Stop showing "typing…" to the other person after this long without a keystroke. */
+private const val TYPING_IDLE_MS = 5_000L
 
 @Composable
 private fun DisconnectedBanner(peer: Peer, reason: PeerStatus.Disconnected.Reason) {
@@ -243,6 +390,7 @@ private fun InputBar(
     onDraftChange: (String) -> Unit,
     enabled: Boolean,
     onPickPhoto: () -> Unit,
+    onRecord: () -> Unit,
     onSend: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -261,8 +409,13 @@ private fun InputBar(
                 // Like Instagram, the photo button sits in the box and steps aside while typing.
                 trailingIcon = if (draft.isEmpty()) {
                     {
-                        IconButton(onClick = onPickPhoto, enabled = enabled) {
-                            Icon(painterResource(R.drawable.ic_photo), contentDescription = "Send a photo")
+                        Row {
+                            IconButton(onClick = onRecord, enabled = enabled) {
+                                Icon(painterResource(R.drawable.ic_mic), contentDescription = "Record a voice message")
+                            }
+                            IconButton(onClick = onPickPhoto, enabled = enabled) {
+                                Icon(painterResource(R.drawable.ic_photo), contentDescription = "Send a photo")
+                            }
                         }
                     }
                 } else {

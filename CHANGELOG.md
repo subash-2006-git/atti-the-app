@@ -4,6 +4,20 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0 - Unreleased
+
+### Added
+- Typing indicator: "typing…" under the other person's name and a bubble
+  with bouncing dots while they type; "recording audio…" while they record.
+- Voice messages: tap the mic to record (up to 2 minutes) with a live
+  waveform, then send or cancel. Messages play from a bubble with a waveform
+  that fills as it plays. The microphone permission is asked for on first use.
+  Like everything else, voice messages are deleted when the chat ends.
+
+### Fixed
+- The "Turn on Bluetooth / Wi-Fi / Location" screen now moves on by itself
+  when they're switched on from Quick Settings.
+
 ## 1.1.0 - 2026-10-21
 
 ### Added

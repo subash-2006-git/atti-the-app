@@ -13,9 +13,10 @@ which picks Bluetooth, BLE or Wi-Fi Direct by itself and encrypts the link.
 
 | | |
 |---|---|
-| Messages | Text (up to 1,000 characters) and photos |
+| Messages | Text (up to 1,000 characters), photos and voice messages (up to 2 minutes) |
 | Chats | One person at a time; the other person must tap Accept |
-| History | Not saved — messages and photos are deleted when the chat ends or the app closes |
+| History | Not saved — everything is deleted when the chat ends or the app closes |
+| Live status | Shows when the other person is typing or recording |
 | Accounts / server | None; everything stays on the two phones |
 | Android | 8.0 (API 26) or newer, with Google Play Services |
 
@@ -52,7 +53,7 @@ Debug builds add three pretend users to the scan list:
 
 | Bot | What it does |
 |---|---|
-| **Test Bot** | Accepts, then echoes your messages and photos. Send `/bye` to make it leave, `/lost` to make it go out of range. |
+| **Test Bot** | Accepts, shows "typing…", then echoes your messages, photos and voice messages. Send `/bye` to make it leave, `/lost` to make it go out of range. |
 | **Shy Bot** | Declines your request. |
 | **Busy Bot** | Answers that it is busy in another chat. |
 
@@ -74,6 +75,8 @@ JSON packets over the link:
 | `{"t":"busy"}` | Sent instead of `hi` when already in a chat |
 | `{"t":"msg","text":"…","ts":…}` | A text message |
 | `{"t":"img","payloadId":…,"size":…,"w":…,"h":…,"ts":…}` | A photo is coming; its JPEG follows as a Nearby stream payload with that id |
+| `{"t":"voice","payloadId":…,"size":…,"durationMs":…,"wave":[…],"ts":…}` | A voice message is coming (AAC audio as a stream payload); `wave` is its loudness shape, 0–100 per bar |
+| `{"t":"typing","what":"typing"}` | The sender is typing (`"recording"`: recording a voice message, `"none"`: stopped). Repeated every 3 s; dropped after 6 s without a repeat |
 | `{"t":"bye"}` | The sender left the chat |
 
 A phone that is already chatting briefly accepts a new request just to send
