@@ -41,6 +41,16 @@ Phone A = your phone, Phone B = the borrowed phone. Tick each item.
 - [ ] Walk out of range while a big photo is sending → it shows "Not sent" / "Couldn't receive"
 - [ ] Leave the chat → photos are gone (they are never saved)
 
+## Typing and voice messages
+- [ ] A types → B sees "typing…" under A's name and a dots bubble; it goes when A sends, clears the box, or stops for 5 s
+- [ ] First tap on the mic asks for the microphone; refusing shows a hint and doesn't record
+- [ ] Recording shows a timer and live waveform; B sees "recording audio…"
+- [ ] Cancel throws the recording away; a recording under a second isn't sent
+- [ ] Send → A's voice message shows a progress ring, then a play button; B receives it
+- [ ] Play: timer counts and the waveform fills; Pause and resume work; only one plays at a time
+- [ ] Going to the home screen mid-recording drops the recording
+- [ ] Leave the chat → voice messages are gone
+
 ## Disconnects
 - [ ] B presses Back → A immediately sees "B left the chat", Send is disabled, messages stay
 - [ ] A presses Back → back on the scan list, can find B again
