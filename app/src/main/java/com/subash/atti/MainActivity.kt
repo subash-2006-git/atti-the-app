@@ -1,6 +1,7 @@
 package com.subash.atti
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -9,6 +10,9 @@ import com.subash.atti.ui.theme.AttiTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Chats are private: no screenshots, screen recording or recent-apps preview.
+        // ATTI's dialogs and popups inherit this from the window.
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
         setContent {
             AttiTheme {

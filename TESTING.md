@@ -41,6 +41,11 @@ Phone A = your phone, Phone B = the borrowed phone. Tick each item.
 - [ ] Walk out of range while a big photo is sending → it shows "Not sent" / "Couldn't receive"
 - [ ] Leave the chat → photos are gone (they are never saved)
 
+## Privacy
+- [ ] Screenshot in any ATTI screen (scan, chat, photo viewer, request popup) → blocked or black
+- [ ] Screen recording while ATTI is open → ATTI shows black
+- [ ] Recent apps → ATTI's card is blank
+
 ## Typing and voice messages
 - [ ] A types → B sees "typing…" under A's name and a dots bubble; it goes when A sends, clears the box, or stops for 5 s
 - [ ] First tap on the mic asks for the microphone; refusing shows a hint and doesn't record
