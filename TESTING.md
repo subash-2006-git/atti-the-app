@@ -103,3 +103,18 @@ generated test pictures (3000×2000 landscape, 1200×2400 portrait).
 | Photos deleted after leaving the chat | Pass, 0 files left in the app cache |
 | Real camera photo taken sideways | Not tested yet |
 | Out of range while a photo is sending | Not tested yet |
+
+### 2026-10-22 — 1.2.0-beta.1 typing and voice (debug build, one phone)
+Phone: moto g64 5G (Android 16) with Test Bot. Released as a beta before
+two-phone testing, at the owner's request; the owner will test by hand.
+
+| Check | Result |
+|---|---|
+| "typing…" in the top bar and dots bubble; cleared when the reply arrives | Pass (Test Bot) |
+| First mic tap asks for the microphone; "Don't allow" shows a hint, no recording | Pass |
+| Recording bar: timer, live waveform, Send | Pass |
+| Voice message sent; Test Bot sends one back | Pass |
+| Play: timer counts and waveform fills | Pass |
+| Pause and resume | Not tested |
+| Typing and voice between two real phones | Not tested |
+| "Turn on Bluetooth" screen moves on when Bluetooth is switched on in the background | Pass |

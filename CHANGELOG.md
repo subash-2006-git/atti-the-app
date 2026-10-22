@@ -4,7 +4,9 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## 1.2.0 - Unreleased
+## 1.2.0-beta.1 - 2026-10-22
+
+Pre-release: tested on one phone with Test Bot only, not yet between two phones.
 
 ### Added
 - Typing indicator: "typing…" under the other person's name and a bubble
