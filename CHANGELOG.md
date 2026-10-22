@@ -4,6 +4,14 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## 1.2.0-beta.2 - 2026-10-22
+
+Pre-release: not yet tested between two phones.
+
+### Added
+- Privacy: screenshots and screen recordings of ATTI come out black, and the
+  recent-apps view shows a blank card instead of the chat.
+
 ## 1.2.0-beta.1 - 2026-10-22
 
 Pre-release: tested on one phone with Test Bot only, not yet between two phones.

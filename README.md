@@ -17,6 +17,7 @@ which picks Bluetooth, BLE or Wi-Fi Direct by itself and encrypts the link.
 | Chats | One person at a time; the other person must tap Accept |
 | History | Not saved — everything is deleted when the chat ends or the app closes |
 | Live status | Shows when the other person is typing or recording |
+| Screenshots | Blocked: screenshots, screen recording and the recent-apps preview show nothing |
 | Accounts / server | None; everything stays on the two phones |
 | Android | 8.0 (API 26) or newer, with Google Play Services |
 
