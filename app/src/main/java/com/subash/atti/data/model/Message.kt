@@ -8,21 +8,48 @@ data class Message(
     val timestamp: Long,
     val fromMe: Boolean,
     val failed: Boolean = false,
-    /** Set for photo messages; [text] is empty then. */
-    val image: ImageAttachment? = null,
+    /** Set for photo and voice messages; [text] is empty then. */
+    val attachment: Attachment? = null,
 ) {
+    val image: ImageAttachment? get() = attachment as? ImageAttachment
+    val voice: VoiceAttachment? get() = attachment as? VoiceAttachment
+
     companion object {
         const val MAX_LENGTH = 1000
     }
 }
 
+/** A file sent alongside a message: it travels separately and can be in progress. */
+sealed interface Attachment {
+    /** The file on this phone; null while a received attachment is still arriving. */
+    val file: File?
+
+    /** 0–1 while sending or receiving; null once the whole file is here. */
+    val progress: Float?
+
+    fun withTransfer(file: File? = this.file, progress: Float?): Attachment
+}
+
 data class ImageAttachment(
-    /** The JPEG on this phone; null while a received photo is still arriving. */
-    val file: File?,
+    override val file: File?,
     val width: Int,
     val height: Int,
-    /** 0–1 while sending or receiving; null once the whole photo is here. */
-    val progress: Float?,
-) {
+    override val progress: Float?,
+) : Attachment {
     val aspectRatio: Float get() = if (height > 0) width / height.toFloat() else 1f
+
+    override fun withTransfer(file: File?, progress: Float?) = copy(file = file, progress = progress)
 }
+
+data class VoiceAttachment(
+    override val file: File?,
+    val durationMs: Long,
+    /** Loudness bars, each 0–1, drawn as the waveform. */
+    val waveform: List<Float>,
+    override val progress: Float?,
+) : Attachment {
+    override fun withTransfer(file: File?, progress: Float?) = copy(file = file, progress = progress)
+}
+
+/** What the other person is doing right now, shown under their name. */
+enum class ChatActivity { NONE, TYPING, RECORDING }

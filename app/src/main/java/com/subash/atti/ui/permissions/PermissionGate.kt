@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.subash.atti.util.PermissionHelper
 import com.subash.atti.util.Radio
+import kotlinx.coroutines.delay
 
 /**
  * Shows [content] only once Play Services is present, every permission is granted
@@ -77,6 +78,17 @@ fun PermissionGate(content: @Composable () -> Unit) {
         if (missing.isEmpty()) PermissionHelper.radiosOff(context) else emptyList()
     }
 
+    // Radios switched on from Quick Settings don't pause the app, so keep checking while we
+    // wait. The effect restarts (and stops looping) once nothing is off any more.
+    val waitingForRadios = radiosOff.isNotEmpty()
+    LaunchedEffect(waitingForRadios) {
+        if (!waitingForRadios) return@LaunchedEffect
+        while (true) {
+            delay(RADIO_RECHECK_MS)
+            checkTick++
+        }
+    }
+
     // Ask in one go the first time the user reaches this point.
     LaunchedEffect(Unit) {
         if (!askedOnce && PermissionHelper.missingPermissions(context).isNotEmpty()) requestPermissions()
@@ -119,6 +131,8 @@ fun PermissionGate(content: @Composable () -> Unit) {
         else -> content()
     }
 }
+
+private const val RADIO_RECHECK_MS = 1_500L
 
 private val Radio.label: String
     get() = when (this) {

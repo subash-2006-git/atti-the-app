@@ -30,6 +30,23 @@ class PacketTest {
         )
     }
 
+    @Test fun `voice announcement survives a round trip`() {
+        val voice = Packet.Voice(payloadId = 42, size = 48_000, durationMs = 12_345, wave = listOf(0, 50, 100), ts = 7)
+        assertEquals(voice, Packet.decode(Packet.encode(voice)))
+    }
+
+    @Test fun `voice waveform is clamped and capped`() {
+        val raw = """{"t":"voice","payloadId":1,"size":2,"durationMs":3,"wave":[-5,250${",1".repeat(100)}],"ts":4}"""
+        val decoded = Packet.decode(raw.encodeToByteArray()) as Packet.Voice
+        assertEquals(Packet.Voice.MAX_BARS, decoded.wave.size)
+        assertEquals(listOf(0, 100), decoded.wave.take(2))
+    }
+
+    @Test fun `typing uses the documented wire format`() {
+        assertEquals("""{"t":"typing","what":"typing"}""", Packet.encode(Packet.Typing("typing")).decodeToString())
+        assertEquals(Packet.Typing("recording"), Packet.decode("""{"t":"typing","what":"recording"}""".encodeToByteArray()))
+    }
+
     @Test fun `garbage and unknown types decode to null`() {
         assertNull(Packet.decode("not json".encodeToByteArray()))
         assertNull(Packet.decode("""{"t":"video"}""".encodeToByteArray()))
