@@ -8,11 +8,12 @@ data class Message(
     val timestamp: Long,
     val fromMe: Boolean,
     val failed: Boolean = false,
-    /** Set for photo and voice messages; [text] is empty then. */
+    /** Set for photo, voice and file messages; [text] is empty then. */
     val attachment: Attachment? = null,
 ) {
     val image: ImageAttachment? get() = attachment as? ImageAttachment
     val voice: VoiceAttachment? get() = attachment as? VoiceAttachment
+    val document: FileAttachment? get() = attachment as? FileAttachment
 
     companion object {
         const val MAX_LENGTH = 1000
@@ -46,6 +47,17 @@ data class VoiceAttachment(
     val durationMs: Long,
     /** Loudness bars, each 0–1, drawn as the waveform. */
     val waveform: List<Float>,
+    override val progress: Float?,
+) : Attachment {
+    override fun withTransfer(file: File?, progress: Float?) = copy(file = file, progress = progress)
+}
+
+/** Any other file (PDF, document, APK, …), shown with its name and size. */
+data class FileAttachment(
+    override val file: File?,
+    val name: String,
+    val mimeType: String,
+    val size: Long,
     override val progress: Float?,
 ) : Attachment {
     override fun withTransfer(file: File?, progress: Float?) = copy(file = file, progress = progress)

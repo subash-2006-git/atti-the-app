@@ -92,6 +92,9 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onSendImage: (Uri) -> Unit,
     onSendVoice: (VoiceRecorder.Recording) -> Unit,
+    onSendFile: (Uri) -> Unit,
+    /** Copies a received file to the chosen place. */
+    onSaveFile: (messageId: Long, destination: Uri) -> Unit,
     /** Tells the other phone whether we're typing or recording. */
     onActivity: (ChatActivity) -> Unit,
     onBack: () -> Unit,
@@ -109,6 +112,19 @@ fun ChatScreen(
     }
     var viewingId by rememberSaveable { mutableStateOf<Long?>(null) }
     val viewing = messages.firstOrNull { it.id == viewingId && it.image?.file != null }
+
+    // Android's file picker: any type, no storage permission needed.
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onSendFile)
+    }
+    // The system "Save as" screen for a received file; it remembers which one is being saved.
+    val saveAs = remember { SaveFileAs() }
+    var savingId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val saveFile = rememberLauncherForActivityResult(saveAs) { destination ->
+        val id = savingId
+        savingId = null
+        if (destination != null && id != null) onSaveFile(id, destination)
+    }
 
     val player = remember { VoicePlayer() }
     val recorder = remember { VoiceRecorder(context.applicationContext) }
@@ -247,7 +263,7 @@ fun ChatScreen(
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (messages.isEmpty() && peerActivity == ChatActivity.NONE) {
                     Text(
-                        "Say hi to ${peer.name}. Messages, photos and voice messages aren't saved and disappear when you leave this chat.",
+                        "Say hi to ${peer.name}. Messages, photos, voice messages and files aren't saved and disappear when you leave this chat.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -279,6 +295,26 @@ fun ChatScreen(
 
                             message.voice != null -> VoiceBubble(message, player, senderName = peer.name)
 
+                            message.document != null -> FileBubble(
+                                message,
+                                senderName = peer.name,
+                                onOpen = {
+                                    val document = message.document
+                                    val file = document?.file
+                                    if (file != null && !openFile(context, file, document.mimeType)) {
+                                        say("No app on this phone can open ${document.name}. Save it instead.")
+                                    }
+                                },
+                                onSave = {
+                                    val document = message.document
+                                    if (document != null) {
+                                        savingId = message.id
+                                        saveAs.mimeType = document.mimeType
+                                        saveFile.launch(document.name)
+                                    }
+                                },
+                            )
+
                             else -> MessageBubble(message)
                         }
                     }
@@ -299,6 +335,7 @@ fun ChatScreen(
                     onPickPhoto = {
                         pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
+                    onPickFile = { pickFile.launch(arrayOf("*/*")) },
                     onRecord = {
                         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                             PackageManager.PERMISSION_GRANTED
@@ -390,6 +427,7 @@ private fun InputBar(
     onDraftChange: (String) -> Unit,
     enabled: Boolean,
     onPickPhoto: () -> Unit,
+    onPickFile: () -> Unit,
     onRecord: () -> Unit,
     onSend: () -> Unit,
 ) {
@@ -406,12 +444,15 @@ private fun InputBar(
                 onValueChange = onDraftChange,
                 enabled = enabled,
                 placeholder = { Text(if (enabled) "Message" else "Can't send while disconnected") },
-                // Like Instagram, the photo button sits in the box and steps aside while typing.
+                // Like Instagram, the attach buttons sit in the box and step aside while typing.
                 trailingIcon = if (draft.isEmpty()) {
                     {
                         Row {
                             IconButton(onClick = onRecord, enabled = enabled) {
                                 Icon(painterResource(R.drawable.ic_mic), contentDescription = "Record a voice message")
+                            }
+                            IconButton(onClick = onPickFile, enabled = enabled) {
+                                Icon(painterResource(R.drawable.ic_attach), contentDescription = "Send a file")
                             }
                             IconButton(onClick = onPickPhoto, enabled = enabled) {
                                 Icon(painterResource(R.drawable.ic_photo), contentDescription = "Send a photo")

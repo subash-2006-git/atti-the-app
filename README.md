@@ -13,7 +13,7 @@ which picks Bluetooth, BLE or Wi-Fi Direct by itself and encrypts the link.
 
 | | |
 |---|---|
-| Messages | Text (up to 1,000 characters), photos and voice messages (up to 2 minutes) |
+| Messages | Text (up to 1,000 characters), photos, voice messages (up to 2 minutes) and files (up to 100 MB) |
 | Chats | One person at a time; the other person must tap Accept |
 | History | Not saved — everything is deleted when the chat ends or the app closes |
 | Live status | Shows when the other person is typing or recording |
@@ -77,6 +77,7 @@ JSON packets over the link:
 | `{"t":"msg","text":"…","ts":…}` | A text message |
 | `{"t":"img","payloadId":…,"size":…,"w":…,"h":…,"ts":…}` | A photo is coming; its JPEG follows as a Nearby stream payload with that id |
 | `{"t":"voice","payloadId":…,"size":…,"durationMs":…,"wave":[…],"ts":…}` | A voice message is coming (AAC audio as a stream payload); `wave` is its loudness shape, 0–100 per bar |
+| `{"t":"file","payloadId":…,"size":…,"name":"…","mime":"…","ts":…}` | A file is coming as a stream payload; `name` is a display name only (folders and odd characters are stripped on arrival) |
 | `{"t":"typing","what":"typing"}` | The sender is typing (`"recording"`: recording a voice message, `"none"`: stopped). Repeated every 3 s; dropped after 6 s without a repeat |
 | `{"t":"bye"}` | The sender left the chat |
 

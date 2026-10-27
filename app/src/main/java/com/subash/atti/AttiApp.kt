@@ -145,6 +145,8 @@ fun AttiApp() {
                         onSend = app.nearby::sendMessage,
                         onSendImage = app.nearby::sendImage,
                         onSendVoice = app.nearby::sendVoice,
+                        onSendFile = app.nearby::sendFile,
+                        onSaveFile = app.nearby::saveFile,
                         onActivity = app.nearby::setMyActivity,
                         onBack = app.nearby::leaveChat,
                     )
@@ -161,6 +163,10 @@ private fun NearbyEvent.toMessage(): String = when (this) {
     is NearbyEvent.NoAnswer -> "${peer.name} didn't answer. Try again later."
     is NearbyEvent.Error -> "$message. Try Rescan."
     NearbyEvent.PhotoUnreadable -> "Couldn't open that photo. Try another one."
+    NearbyEvent.FileUnreadable -> "Couldn't read that file. It may be empty or no longer there."
+    NearbyEvent.FileTooBig -> "That file is over 100 MB. Pick a smaller one."
+    is NearbyEvent.FileSaved -> "Saved $name"
+    NearbyEvent.FileSaveFailed -> "Couldn't save the file. Try another folder."
 }
 
 /** Debug builds only: makes Test Bot send us a chat request. */

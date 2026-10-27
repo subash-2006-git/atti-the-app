@@ -46,6 +46,16 @@ Phone A = your phone, Phone B = the borrowed phone. Tick each item.
 - [ ] Screen recording while ATTI is open → ATTI shows black
 - [ ] Recent apps → ATTI's card is blank
 
+## Files
+- [ ] 📎 opens the file picker; any file type can be picked
+- [ ] Sender sees name, size and a progress bar ("1.2 of 4.8 MB"); receiver sees the same while it arrives
+- [ ] Tap a finished file → it opens in a matching app (e.g. a PDF viewer)
+- [ ] A file type with no app → hint to save it instead
+- [ ] Received file → Save → choose a folder → "Saved <name>"; the file is there afterwards
+- [ ] A file over 100 MB is refused with a message
+- [ ] Out of range mid-transfer → "Not sent" / "Couldn't receive"
+- [ ] Leave the chat → unsaved files are gone
+
 ## Typing and voice messages
 - [ ] A types → B sees "typing…" under A's name and a dots bubble; it goes when A sends, clears the box, or stops for 5 s
 - [ ] First tap on the mic asks for the microphone; refusing shows a hint and doesn't record
@@ -123,3 +133,19 @@ two-phone testing, at the owner's request; the owner will test by hand.
 | Pause and resume | Not tested |
 | Typing and voice between two real phones | Not tested |
 | "Turn on Bluetooth" screen moves on when Bluetooth is switched on in the background | Pass |
+
+### 2026-10-27 — file sharing (debug build, one phone)
+Phone: moto g64 5G (Android 16) with Test Bot, using a 51-byte text file and a
+3 MB file pushed to Downloads (removed afterwards).
+
+| Check | Result |
+|---|---|
+| 📎 opens the system file picker | Pass |
+| Sent bubble: name, "51 B · TXT" | Pass |
+| Received bubble shows progress ("10 B of 51 B"), then Save | Pass |
+| Tap a file → Android's "Open with" chooser → opens in HTML Viewer | Pass |
+| Save → system Save screen → "Saved …"; copy is byte-identical (same MD5) | Pass |
+| 3 MB file sent and received | Pass (progress too quick to see with Test Bot) |
+| Leave the chat → chat files deleted (0 left) | Pass |
+| Real phone-to-phone transfer, progress at Bluetooth speed | Not tested |
+| File over 100 MB refused; out of range mid-transfer | Not tested |
