@@ -133,3 +133,19 @@ two-phone testing, at the owner's request; the owner will test by hand.
 | Pause and resume | Not tested |
 | Typing and voice between two real phones | Not tested |
 | "Turn on Bluetooth" screen moves on when Bluetooth is switched on in the background | Pass |
+
+### 2026-10-27 — file sharing (debug build, one phone)
+Phone: moto g64 5G (Android 16) with Test Bot, using a 51-byte text file and a
+3 MB file pushed to Downloads (removed afterwards).
+
+| Check | Result |
+|---|---|
+| 📎 opens the system file picker | Pass |
+| Sent bubble: name, "51 B · TXT" | Pass |
+| Received bubble shows progress ("10 B of 51 B"), then Save | Pass |
+| Tap a file → Android's "Open with" chooser → opens in HTML Viewer | Pass |
+| Save → system Save screen → "Saved …"; copy is byte-identical (same MD5) | Pass |
+| 3 MB file sent and received | Pass (progress too quick to see with Test Bot) |
+| Leave the chat → chat files deleted (0 left) | Pass |
+| Real phone-to-phone transfer, progress at Bluetooth speed | Not tested |
+| File over 100 MB refused; out of range mid-transfer | Not tested |
