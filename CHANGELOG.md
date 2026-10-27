@@ -4,13 +4,27 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.2.0 - 2026-10-27
+
+Everything since 1.1.0. Tested on one phone against Test Bot; not yet tested
+between two phones (see TESTING.md).
 
 ### Added
 - File sharing: tap 📎 to send any file up to 100 MB. It shows its name,
   size and a progress bar; tap to open it in another app. Received files have
   a Save button to keep them — otherwise, like everything else, they are
   deleted when the chat ends.
+- Voice messages: tap the mic to record (up to 2 minutes) with a live
+  waveform, then send or cancel. Messages play from a bubble with a waveform
+  that fills as it plays. The microphone permission is asked for on first use.
+- Typing indicator: "typing…" under the other person's name and a bubble with
+  bouncing dots while they type; "recording audio…" while they record.
+- Privacy: screenshots and screen recordings of ATTI come out black, and the
+  recent-apps view shows a blank card instead of the chat.
+
+### Fixed
+- The "Turn on Bluetooth / Wi-Fi / Location" screen now moves on by itself
+  when they're switched on from Quick Settings.
 
 ## 1.2.0-beta.2 - 2026-10-22
 
