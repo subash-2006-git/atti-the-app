@@ -29,4 +29,9 @@ sealed interface NearbyEvent {
 
     /** The picked photo couldn't be read or compressed. */
     data object PhotoUnreadable : NearbyEvent
+
+    data object FileUnreadable : NearbyEvent
+    data object FileTooBig : NearbyEvent
+    data class FileSaved(val name: String) : NearbyEvent
+    data object FileSaveFailed : NearbyEvent
 }

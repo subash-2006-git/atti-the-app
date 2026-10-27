@@ -2,6 +2,7 @@ package com.subash.atti.data
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
@@ -22,6 +23,7 @@ import com.google.android.gms.nearby.connection.Strategy
 import com.subash.atti.BuildConfig
 import com.subash.atti.data.model.Attachment
 import com.subash.atti.data.model.ChatActivity
+import com.subash.atti.data.model.FileAttachment
 import com.subash.atti.data.model.ImageAttachment
 import com.subash.atti.data.model.Message
 import com.subash.atti.data.model.NearbyEvent
@@ -505,6 +507,10 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
                 onVoiceAnnounced(packet)
             }
 
+            is Packet.Document -> if (status is PeerStatus.Connected && status.peer.endpointId == endpointId) {
+                onFileAnnounced(packet)
+            }
+
             is Packet.Typing -> if (status is PeerStatus.Connected && status.peer.endpointId == endpointId) {
                 onPeerActivity(packet.what)
             }
@@ -521,11 +527,11 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
 
     // endregion
 
-    // region Attachments: photos and voice messages
+    // region Attachments: photos, voice messages and files
     //
     // An attachment travels as two payloads: a small packet announcing it
-    // (Packet.Image or Packet.Voice, so its bubble can appear straight away), then
-    // the file as a stream. Either may arrive first.
+    // (Packet.Image, Packet.Voice or Packet.Document, so its bubble can appear
+    // straight away), then the file as a stream. Either may arrive first.
 
     /** Shrinks the picked photo and sends it to the open chat. */
     fun sendImage(uri: Uri) {
@@ -566,6 +572,83 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Copies the picked file into the chat and sends it, if it's within the size limit. */
+    fun sendFile(uri: Uri) {
+        val peer = connectedPeer() ?: return
+        transferJobs += scope.launch {
+            val copied = when (val picked = withContext(Dispatchers.IO) { copyPickedFile(uri) }) {
+                is PickedFile.Copied -> picked
+                PickedFile.TooBig -> {
+                    _events.tryEmit(NearbyEvent.FileTooBig)
+                    return@launch
+                }
+                PickedFile.Unreadable -> {
+                    _events.tryEmit(NearbyEvent.FileUnreadable)
+                    return@launch
+                }
+            }
+            // The chat may have ended while we were copying.
+            if (connectedPeer() != peer) return@launch
+            val document = FileAttachment(copied.file, copied.name, copied.mime, copied.file.length(), progress = 0f)
+            sendAttachment(peer, document) { payloadId, size, ts ->
+                Packet.Document(payloadId, size, copied.name, copied.mime, ts)
+            }
+        }
+    }
+
+    private sealed interface PickedFile {
+        data class Copied(val file: File, val name: String, val mime: String) : PickedFile
+        data object TooBig : PickedFile
+        data object Unreadable : PickedFile
+    }
+
+    /** Copies a picked document into this chat's folder, so it's deleted when the chat ends. */
+    private fun copyPickedFile(uri: Uri): PickedFile {
+        val resolver = appContext.contentResolver
+        var name = ""
+        var size = -1L
+        runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { row ->
+                if (row.moveToFirst()) {
+                    row.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 && !row.isNull(it) }
+                        ?.let { name = row.getString(it) }
+                    row.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 && !row.isNull(it) }
+                        ?.let { size = row.getLong(it) }
+                }
+            }
+        }
+        // Refuse early when the size is known; otherwise the copy below stops at the limit.
+        if (size > Packet.Document.MAX_SIZE) return PickedFile.TooBig
+
+        val safeName = FileNames.safe(name)
+        val mime = FileNames.safeMime(resolver.getType(uri).orEmpty())
+        val out = File(chatFilesDir, "out-${System.nanoTime()}/$safeName").apply { parentFile?.mkdirs() }
+        val written = runCatching {
+            resolver.openInputStream(uri)?.use { copyLimited(it, out, Packet.Document.MAX_SIZE) }
+        }.getOrNull()
+        return when {
+            written == null || written == 0L -> PickedFile.Unreadable.also { out.parentFile?.deleteRecursively() }
+            written > Packet.Document.MAX_SIZE -> PickedFile.TooBig.also { out.parentFile?.deleteRecursively() }
+            else -> PickedFile.Copied(out, safeName, mime)
+        }
+    }
+
+    /** Copies a received file to where the user chose on the system "Save" screen. */
+    fun saveFile(messageId: Long, destination: Uri) {
+        val document = _messages.value.firstOrNull { it.id == messageId }?.document ?: return
+        val file = document.file ?: return
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    appContext.contentResolver.openOutputStream(destination)?.use { out ->
+                        file.inputStream().use { it.copyTo(out) }
+                    } != null
+                }.getOrDefault(false)
+            }
+            _events.tryEmit(if (saved) NearbyEvent.FileSaved(document.name) else NearbyEvent.FileSaveFailed)
+        }
+    }
+
     private fun sendAttachment(
         peer: Peer,
         attachment: Attachment,
@@ -603,6 +686,14 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
         expectAttachment(packet.payloadId, packet.size, VoiceAttachment(null, packet.durationMs, wave, progress = 0f))
     }
 
+    private fun onFileAnnounced(packet: Packet.Document) {
+        if (packet.size !in 1..Packet.Document.MAX_SIZE) return
+        expectAttachment(
+            packet.payloadId, packet.size,
+            FileAttachment(null, packet.name, packet.mime, packet.size, progress = 0f),
+        )
+    }
+
     private fun expectAttachment(payloadId: Long, size: Long, attachment: Attachment) {
         // Whatever they were typing or recording has now arrived.
         setPeerActivity(ChatActivity.NONE)
@@ -627,8 +718,12 @@ class NearbyManager(context: Context, private val scope: CoroutineScope) {
     private fun readAttachment(payload: Payload) {
         val messageId = transferMessages[payload.id] ?: return
         val expected = transferSizes[payload.id] ?: return
-        val isVoice = _messages.value.firstOrNull { it.id == messageId }?.voice != null
-        val file = File(chatFilesDir, "in-${payload.id}.${if (isVoice) "m4a" else "jpg"}")
+        val file = when (val attachment = _messages.value.firstOrNull { it.id == messageId }?.attachment) {
+            is VoiceAttachment -> File(chatFilesDir, "in-${payload.id}.m4a")
+            // Its own folder, so the file keeps its real name for opening and saving.
+            is FileAttachment -> File(chatFilesDir, "in-${payload.id}/${attachment.name}")
+            else -> File(chatFilesDir, "in-${payload.id}.jpg")
+        }
         transferJobs += scope.launch {
             val complete = withContext(Dispatchers.IO) {
                 runCatching {

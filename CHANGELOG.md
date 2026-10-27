@@ -4,6 +4,14 @@ All notable changes to ATTI are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+- File sharing: tap 📎 to send any file up to 100 MB. It shows its name,
+  size and a progress bar; tap to open it in another app. Received files have
+  a Save button to keep them — otherwise, like everything else, they are
+  deleted when the chat ends.
+
 ## 1.2.0-beta.2 - 2026-10-22
 
 Pre-release: not yet tested between two phones.

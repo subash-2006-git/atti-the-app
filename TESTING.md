@@ -46,6 +46,16 @@ Phone A = your phone, Phone B = the borrowed phone. Tick each item.
 - [ ] Screen recording while ATTI is open → ATTI shows black
 - [ ] Recent apps → ATTI's card is blank
 
+## Files
+- [ ] 📎 opens the file picker; any file type can be picked
+- [ ] Sender sees name, size and a progress bar ("1.2 of 4.8 MB"); receiver sees the same while it arrives
+- [ ] Tap a finished file → it opens in a matching app (e.g. a PDF viewer)
+- [ ] A file type with no app → hint to save it instead
+- [ ] Received file → Save → choose a folder → "Saved <name>"; the file is there afterwards
+- [ ] A file over 100 MB is refused with a message
+- [ ] Out of range mid-transfer → "Not sent" / "Couldn't receive"
+- [ ] Leave the chat → unsaved files are gone
+
 ## Typing and voice messages
 - [ ] A types → B sees "typing…" under A's name and a dots bubble; it goes when A sends, clears the box, or stops for 5 s
 - [ ] First tap on the mic asks for the microphone; refusing shows a hint and doesn't record

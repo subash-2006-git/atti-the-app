@@ -53,6 +53,23 @@ sealed interface Packet {
     }
 
     /**
+     * Announces any other file. Its bytes follow as a stream payload with id
+     * [payloadId], like a photo. [name] is only a display name, never a path.
+     */
+    @Serializable @SerialName("file")
+    data class Document(
+        val payloadId: Long,
+        val size: Long,
+        val name: String,
+        val mime: String,
+        val ts: Long,
+    ) : Packet {
+        companion object {
+            const val MAX_SIZE = 100L * 1024 * 1024
+        }
+    }
+
+    /**
      * What the sender is doing: "typing", "recording" or "none". Repeated every few
      * seconds while it lasts; the receiver forgets it if the repeats stop.
      */
@@ -74,6 +91,7 @@ sealed interface Packet {
             return when (packet) {
                 is Text -> packet.copy(text = packet.text.take(Message.MAX_LENGTH))
                 is Voice -> packet.copy(wave = packet.wave.take(Voice.MAX_BARS).map { it.coerceIn(0, 100) })
+                is Document -> packet.copy(name = FileNames.safe(packet.name), mime = FileNames.safeMime(packet.mime))
                 else -> packet
             }
         }
